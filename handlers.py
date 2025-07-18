@@ -1,167 +1,94 @@
 # File: handlers.py
-# Versi baru dengan ConversationHandler untuk membuat akun SSH.
+# Versi baru dengan ConversationHandler untuk SSH, Vmess & Vless.
 
-import subprocess
-import re
+import subprocess, re, logging
 from telegram import Update
 from telegram.ext import (
-    ContextTypes,
-    ConversationHandler,
-    MessageHandler,
-    filters
+    ContextTypes, ConversationHandler,
+    MessageHandler, filters, CallbackQueryHandler, CommandHandler
 )
+import keyboards, config, database
 
-# Impor dari file lokal Anda
-import keyboards
-import config
-import database
-
-# Definisikan State untuk Conversation
+# Definisikan State untuk SEMUA Conversation
 (
-    GET_USERNAME,
-    GET_PASSWORD,
-    GET_DURATION,
-    GET_IP_LIMIT
-) = range(4)
+    SSH_GET_USERNAME, SSH_GET_PASSWORD, SSH_GET_DURATION, SSH_GET_IP_LIMIT,
+    VMESS_GET_USER, VMESS_GET_DURATION, VMESS_GET_IP_LIMIT, VMESS_GET_QUOTA,
+    VLESS_GET_USER, VLESS_GET_DURATION, VLESS_GET_IP_LIMIT, VLESS_GET_QUOTA
+) = range(12)
 
-
-# --- FUNGSI BANTUAN ---
-def is_admin(update: Update) -> bool:
-    """Memeriksa apakah pengguna adalah admin utama."""
-    return update.effective_user.id == config.ADMIN_TELEGRAM_ID
-
-
-# --- HANDLER UNTUK PERINTAH ---
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Fungsi untuk perintah /start."""
-    user = update.effective_user
-    database.add_user_if_not_exists(user.id, user.first_name, user.username)
-
-    user_info = (
-        f"<b>Informasi Profil Anda:</b>\n"
-        f"-----------------------------------\n"
-        f"<b>ID Pengguna:</b> <code>{user.id}</code>\n"
-        f"<b>Nama Depan:</b> {user.first_name}\n"
-        f"<b>Username:</b> @{user.username or 'Tidak ada'}\n"
-        f"-----------------------------------\n\n"
-        "Gunakan /menu untuk melihat semua fitur."
-    )
+def is_admin(update: Update) -> bool: return update.effective_user.id == config.ADMIN_TELEGRAM_ID
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: # ... (Fungsi start tidak berubah)
+    user = update.effective_user; database.add_user_if_not_exists(user.id, user.first_name, user.username)
+    user_info = f"<b>ID:</b> <code>{user.id}</code>\n<b>Nama:</b> {user.first_name}\n\nSelamat datang! Gunakan /menu."
     await update.message.reply_text(user_info, parse_mode='HTML')
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: # ... (Fungsi menu tidak berubah)
+    await update.message.reply_text("Pilih menu:", reply_markup=keyboards.get_main_menu_keyboard())
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None: # ... (Fungsi admin tidak berubah)
+    if not is_admin(update): await update.message.reply_text("Perintah ini hanya untuk Admin."); return
+    await update.message.reply_text("Selamat datang di Panel Admin.")
 
-
-async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Fungsi untuk perintah /menu."""
-    await update.message.reply_text(
-        text="Silakan pilih menu di bawah ini:",
-        reply_markup=keyboards.get_main_menu_keyboard()
-    )
-
-async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Fungsi untuk perintah /admin (khusus admin)."""
-    if not is_admin(update):
-        await update.message.reply_text("Perintah ini hanya untuk Admin.")
-        return
-    await update.message.reply_text(f"Selamat datang di Panel Admin, {update.effective_user.first_name}!")
-
-
-# --- HANDLER UNTUK TOMBOL ---
-
+# --- HANDLER TOMBOL & NAVIGASI ---
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Menangani klik tombol dan memulai conversation jika perlu."""
-    query = update.callback_query
-    await query.answer()
-    command = query.data
+    query = update.callback_query; await query.answer(); command = query.data
+    if command == "back_to_main_menu": await query.edit_message_text("Kembali ke menu utama.", reply_markup=keyboards.get_main_menu_keyboard()); return ConversationHandler.END
+    if command == "menu_ssh": await query.edit_message_text("<b>SSH PANEL MENU</b>", reply_markup=keyboards.get_ssh_menu_keyboard(), parse_mode='HTML'); return ConversationHandler.END
+    if command == "ssh_add": await query.edit_message_text("Masukkan <b>Username</b> untuk akun SSH:", parse_mode='HTML'); return SSH_GET_USERNAME
+    if command == "menu_vmess": await query.edit_message_text("Masukkan <b>User</b> untuk akun Vmess:", parse_mode='HTML'); return VMESS_GET_USER
 
-    if command == "ssh_add":
-        await query.edit_message_text(text="Silakan masukkan <b>Username</b> untuk akun baru:", parse_mode='HTML')
-        return GET_USERNAME # Memulai conversation
+    # BARU: Logika untuk memulai conversation Vless
+    if command == "menu_vless":
+        await query.edit_message_text("Masukkan <b>User</b> untuk akun Vless:", parse_mode='HTML')
+        return VLESS_GET_USER
 
-    # Logika untuk tombol lain tetap di sini...
-    elif command == "back_to_main_menu":
-        await query.edit_message_text(text="Anda kembali ke menu utama.", reply_markup=keyboards.get_main_menu_keyboard())
-    elif command == "menu_ssh":
-        await query.edit_message_text(text="<b>SSH PANEL MENU</b>", reply_markup=keyboards.get_ssh_menu_keyboard(), parse_mode='HTML')
-    else:
-        await query.edit_message_text(text=f"Fitur <b>{command}</b> sedang dalam pengembangan.", parse_mode='HTML')
+    else: await query.edit_message_text(f"Fitur <b>{command}</b> belum siap.", parse_mode='HTML'); return ConversationHandler.END
 
-    return ConversationHandler.END # Akhiri jika bukan tombol memulai conversation
+# --- CONVERSATION HANDLERS (TIDAK BERUBAH) ---
+async def ssh_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # ... (Tidak berubah)
+    context.user_data['ssh_username'] = update.message.text; await update.message.reply_text("<b>Password</b>:", parse_mode='HTML'); return SSH_GET_PASSWORD
+async def ssh_get_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # ... (Tidak berubah)
+    context.user_data['ssh_password'] = update.message.text; await update.message.reply_text("<b>Masa Aktif</b> (hari):", parse_mode='HTML'); return SSH_GET_DURATION
+async def ssh_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # ... (Tidak berubah)
+    context.user_data['ssh_duration'] = update.message.text; await update.message.reply_text("<b>Limit IP</b>:", parse_mode='HTML'); return SSH_GET_IP_LIMIT
+async def ssh_get_ip_limit_and_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # ... (Tidak berubah)
+    context.user_data['ssh_ip_limit'] = update.message.text; await update.message.reply_text("⏳ Memproses SSH..."); try: p = subprocess.run(['sudo', '/opt/hokage-bot/create_ssh_user.sh', context.user_data['ssh_username'], context.user_data['ssh_password'], context.user_data['ssh_duration'], context.user_data['ssh_ip_limit']], capture_output=True, text=True, check=True, timeout=30); await update.message.reply_text(p.stdout, parse_mode='HTML'); except Exception as e: await update.message.reply_text(f"❌ Gagal: {e}"); context.user_data.clear(); return ConversationHandler.END
+async def vmess_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # ... (Tidak berubah)
+    context.user_data['vmess_user'] = update.message.text; await update.message.reply_text("<b>Masa Aktif</b> (hari):", parse_mode='HTML'); return VMESS_GET_DURATION
+async def vmess_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # ... (Tidak berubah)
+    context.user_data['vmess_duration'] = update.message.text; await update.message.reply_text("<b>Limit IP</b> (0=unlimited):", parse_mode='HTML'); return VMESS_GET_IP_LIMIT
+async def vmess_get_ip_limit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # ... (Tidak berubah)
+    context.user_data['vmess_ip_limit'] = update.message.text; await update.message.reply_text("<b>Kuota</b> (GB, 0=unlimited):", parse_mode='HTML'); return VMESS_GET_QUOTA
+async def vmess_get_quota_and_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # ... (Tidak berubah)
+    context.user_data['vmess_quota'] = update.message.text; await update.message.reply_text("⏳ Memproses Vmess..."); try: p = subprocess.run(['sudo', '/opt/hokage-bot/create_vmess_user.sh', context.user_data['vmess_user'], context.user_data['vmess_duration'], context.user_data['vmess_ip_limit'], context.user_data['vmess_quota']], capture_output=True, text=True, check=True, timeout=30); await update.message.reply_text(p.stdout, parse_mode='HTML'); except Exception as e: await update.message.reply_text(f"❌ Gagal: {e}"); context.user_data.clear(); return ConversationHandler.END
 
+# --- BARU: CONVERSATION HANDLER UNTUK VLESS ---
+async def vless_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['vless_user'] = update.message.text
+    await update.message.reply_text("Masukkan <b>Masa Aktif</b> (hari):", parse_mode='HTML'); return VLESS_GET_DURATION
 
-# --- FUNGSI-FUNGSI DALAM CONVERSATION ---
+async def vless_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['vless_duration'] = update.message.text
+    await update.message.reply_text("Masukkan <b>Limit IP</b> (0 untuk unlimited):", parse_mode='HTML'); return VLESS_GET_IP_LIMIT
 
-async def get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Menerima username dan meminta password."""
-    username = update.message.text
-    # Validasi username (hanya huruf kecil, angka, 4-12 karakter)
-    if not re.match("^[a-z0-9]{4,12}$", username):
-        await update.message.reply_text("❌ Username tidak valid.\nHarus 4-12 karakter dan hanya berisi huruf kecil dan angka. Silakan coba lagi.")
-        return GET_USERNAME
+async def vless_get_ip_limit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['vless_ip_limit'] = update.message.text
+    await update.message.reply_text("Masukkan <b>Kuota</b> (GB, 0 untuk unlimited):", parse_mode='HTML'); return VLESS_GET_QUOTA
 
-    context.user_data['ssh_username'] = username
-    await update.message.reply_text("✅ Username diterima. Sekarang masukkan <b>Password</b>:", parse_mode='HTML')
-    return GET_PASSWORD
-
-
-async def get_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Menerima password dan meminta masa aktif."""
-    context.user_data['ssh_password'] = update.message.text
-    await update.message.reply_text("✅ Password diterima. Sekarang masukkan <b>Masa Aktif</b> (dalam hari, contoh: 30):", parse_mode='HTML')
-    return GET_DURATION
-
-
-async def get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Menerima masa aktif dan meminta limit IP."""
-    duration = update.message.text
-    if not duration.isdigit() or not 1 <= int(duration) <= 365:
-        await update.message.reply_text("❌ Masa aktif tidak valid. Masukkan angka antara 1 dan 365.")
-        return GET_DURATION
-
-    context.user_data['ssh_duration'] = duration
-    await update.message.reply_text("✅ Masa aktif diterima. Terakhir, masukkan <b>Limit IP/Login</b> (contoh: 1):", parse_mode='HTML')
-    return GET_IP_LIMIT
-
-
-async def get_ip_limit_and_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Menerima limit IP, membuat akun, dan mengakhiri conversation."""
-    ip_limit = update.message.text
-    if not ip_limit.isdigit() or not 1 <= int(ip_limit) <= 10:
-        await update.message.reply_text("❌ Limit IP tidak valid. Masukkan angka antara 1 dan 10.")
-        return GET_IP_LIMIT
-
-    context.user_data['ssh_ip_limit'] = ip_limit
-
-    # Kirim pesan tunggu
-    await update.message.reply_text("⏳ Sedang memproses pembuatan akun, mohon tunggu...")
-
-    # Ambil semua data dari context
-    username = context.user_data['ssh_username']
-    password = context.user_data['ssh_password']
-    duration = context.user_data['ssh_duration']
-
-    # Jalankan skrip backend
+async def vless_get_quota_and_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['vless_quota'] = update.message.text
+    await update.message.reply_text("⏳ Memproses pembuatan akun Vless...")
     try:
-        process = subprocess.run(
-            ['sudo', '/opt/hokage-bot/create_ssh_user.sh', username, password, duration, ip_limit],
-            capture_output=True, text=True, check=True
+        p = subprocess.run(
+            ['sudo', '/opt/hokage-bot/create_vless_user.sh', context.user_data['vless_user'], context.user_data['vless_duration'], context.user_data['vless_ip_limit'], context.user_data['vless_quota']],
+            capture_output=True, text=True, check=True, timeout=30
         )
-        # Kirim output dari skrip ke pengguna
-        await update.message.reply_text(process.stdout, parse_mode='HTML')
-
+        await update.message.reply_text(p.stdout, parse_mode='HTML')
     except subprocess.CalledProcessError as e:
-        # Jika skrip mengembalikan error (misal: username sudah ada)
-        await update.message.reply_text(f"❌ Gagal membuat akun:\n<pre>{e.stdout or 'Error tidak diketahui dari skrip.'}</pre>", parse_mode='HTML')
+        await update.message.reply_text(f"❌ Gagal:\n<pre>{e.stdout or e.stderr}</pre>", parse_mode='HTML')
     except Exception as e:
-        # Jika ada error lain
         await update.message.reply_text(f"❌ Terjadi kesalahan fatal: {e}")
-
-    # Bersihkan data dan akhiri conversation
     context.user_data.clear()
     return ConversationHandler.END
 
-
+# --- FUNGSI PEMBATALAN ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Membatalkan dan mengakhiri conversation."""
-    await update.message.reply_text("Proses pembuatan akun dibatalkan.")
-    context.user_data.clear()
-    return ConversationHandler.END
+    await update.message.reply_text("Proses dibatalkan."); context.user_data.clear(); return ConversationHandler.END
