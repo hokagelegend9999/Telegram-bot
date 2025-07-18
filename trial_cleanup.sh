@@ -21,11 +21,12 @@ while IFS= read -r line; do
         if [ "$ACC_TYPE" = "ssh" ]; then
             userdel -r "$USERNAME"
             sed -i "/^### $USERNAME /d" /etc/xray/ssh
-        elif [ "$ACC_TYPE" = "vmess" ]; then
-            # Hapus baris JSON dan komentar untuk Vmess
+        elif [ "$ACC_TYPE" = "vmess" ] || [ "$ACC_TYPE" = "vless" ]; then # Vmess & Vless sama
             sed -i "/\"email\": \"$USERNAME\"/d" "$CONFIG_FILE"
             sed -i "/\#vm $USERNAME /d" "$CONFIG_FILE"
             sed -i "/\#vmg $USERNAME /d" "$CONFIG_FILE"
+            sed -i "/\#vl $USERNAME /d" "$CONFIG_FILE"
+            sed -i "/\#vlg $USERNAME /d" "$CONFIG_FILE"
         fi
     else
         echo "$line" >> "$TMP_LOG_FILE"
