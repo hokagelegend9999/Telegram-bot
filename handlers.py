@@ -272,3 +272,22 @@ async def admin_get_ssh_password(update: Update, context: ContextTypes.DEFAULT_T
         return ADMIN_PASSWORD
     context.user_data['admin_ssh_password'] = password
     return await process_ssh_creation(update, context, is_admin_flow=True)
+# TAMBAHKAN KODE DI BAWAH INI DI AKHIR FILE
+
+from telegram import Update
+from telegram.ext import ContextTypes
+
+# Fungsi untuk menangani semua klik tombol
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Menangani semua input dari Inline Keyboard."""
+    query = update.callback_query
+    await query.answer()  # Wajib, untuk konfirmasi klik ke Telegram
+
+    command = query.data
+    response_text = f"Anda memilih menu: {command}"
+
+    # Di sini Anda bisa menambahkan logika untuk setiap tombol
+    # if command == "menu_ssh":
+    #     response_text = "Memproses menu SSH..."
+
+    await query.edit_message_text(text=response_text)
