@@ -1,4 +1,4 @@
-# File: handlers.py (Versi Final dengan Logika Pembatalan yang Benar)
+# File: handlers.py (Versi Final Stabil)
 
 import subprocess, re, logging
 from telegram import Update
@@ -8,8 +8,14 @@ from telegram.ext import (
 )
 import keyboards, config, database
 
-# Definisikan State
-(ROUTE, SSH_GET_USERNAME, SSH_GET_PASSWORD, SSH_GET_DURATION, SSH_GET_IP_LIMIT, VMESS_GET_USER, VMESS_GET_DURATION, VMESS_GET_IP_LIMIT, VMESS_GET_QUOTA, VLESS_GET_USER, VLESS_GET_DURATION, VLESS_GET_IP_LIMIT, VLESS_GET_QUOTA, TROJAN_GET_USER, TROJAN_GET_DURATION, TROJAN_GET_IP_LIMIT, TROJAN_GET_QUOTA) = range(17)
+# Definisikan State untuk SEMUA Conversation dalam satu alur
+(
+    ROUTE,
+    SSH_GET_USERNAME, SSH_GET_PASSWORD, SSH_GET_DURATION, SSH_GET_IP_LIMIT,
+    VMESS_GET_USER, VMESS_GET_DURATION, VMESS_GET_IP_LIMIT, VMESS_GET_QUOTA,
+    VLESS_GET_USER, VLESS_GET_DURATION, VLESS_GET_IP_LIMIT, VLESS_GET_QUOTA,
+    TROJAN_GET_USER, TROJAN_GET_DURATION, TROJAN_GET_IP_LIMIT, TROJAN_GET_QUOTA
+) = range(17)
 
 def is_admin(update: Update) -> bool: return update.effective_user.id == config.ADMIN_TELEGRAM_ID
 
@@ -37,42 +43,52 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if command == "menu_ssh": await query.edit_message_text("<b>SSH PANEL MENU</b>", reply_markup=keyboards.get_ssh_menu_keyboard(), parse_mode='HTML'); return ROUTE
     if command == "menu_vmess": await query.edit_message_text("<b>VMESS PANEL MENU</b>", reply_markup=keyboards.get_vmess_menu_keyboard(), parse_mode='HTML'); return ROUTE
     if command == "menu_vless": await query.edit_message_text("<b>VLESS PANEL MENU</b>", reply_markup=keyboards.get_vless_menu_keyboard(), parse_mode='HTML'); return ROUTE
+    if command == "menu_trojan": await query.edit_message_text("<b>TROJAN PANEL MENU</b>", reply_markup=keyboards.get_trojan_menu_keyboard(), parse_mode='HTML'); return ROUTE
+
     if command == "ssh_add": await query.edit_message_text("Masukkan <b>Username</b> untuk akun SSH:", parse_mode='HTML'); return SSH_GET_USERNAME
     if command == "vmess_add": await query.edit_message_text("Masukkan <b>User</b> untuk akun Vmess:", parse_mode='HTML'); return VMESS_GET_USER
     if command == "vless_add": await query.edit_message_text("Masukkan <b>User</b> untuk akun Vless:", parse_mode='HTML'); return VLESS_GET_USER
-    if command == "menu_trojan": await query.edit_message_text("Masukkan <b>User</b> untuk akun Trojan:", parse_mode='HTML'); return TROJAN_GET_USER
+    if command == "trojan_add": await query.edit_message_text("Masukkan <b>User</b> untuk akun Trojan:", parse_mode='HTML'); return TROJAN_GET_USER
+
     if command == "ssh_trial":
-        await query.edit_message_text("⏳ Memproses pembuatan akun trial SSH...")
+        await query.edit_message_text("⏳ Memproses trial SSH...")
         try:
             p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_ssh.sh'], capture_output=True, text=True, check=True, timeout=30)
             await query.edit_message_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
         except Exception as e: return await handle_script_error(query, context, e)
         return ROUTE
     if command == "vmess_trial":
-        await query.edit_message_text("⏳ Memproses pembuatan akun trial Vmess...")
+        await query.edit_message_text("⏳ Memproses trial Vmess...")
         try:
             p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_vmess.sh'], capture_output=True, text=True, check=True, timeout=30)
             await query.edit_message_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
         except Exception as e: return await handle_script_error(query, context, e)
         return ROUTE
     if command == "vless_trial":
-        await query.edit_message_text("⏳ Memproses pembuatan akun trial Vless...")
+        await query.edit_message_text("⏳ Memproses trial Vless...")
         try:
             p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_vless.sh'], capture_output=True, text=True, check=True, timeout=30)
             await query.edit_message_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
         except Exception as e: return await handle_script_error(query, context, e)
         return ROUTE
-    if command == "close_menu": await query.edit_message_text("Menu ditutup. Kirim /menu untuk membuka lagi."); return ConversationHandler.END
+    if command == "trojan_trial":
+        await query.edit_message_text("⏳ Memproses trial Trojan...")
+        try:
+            p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_trojan.sh'], capture_output=True, text=True, check=True, timeout=30)
+            await query.edit_message_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
+        except Exception as e: return await handle_script_error(query, context, e)
+        return ROUTE
+
+    if command == "close_menu": await query.edit_message_text("Menu ditutup. Kirim /menu untuk memulai lagi."); return ConversationHandler.END
     else: await query.edit_message_text(f"Fitur <b>{command}</b> belum siap.", parse_mode='HTML'); return ROUTE
 
 async def handle_script_error(query, context: ContextTypes.DEFAULT_TYPE, error: Exception):
-    update_obj = query.message if query else context.bot
     if isinstance(error, subprocess.CalledProcessError):
         error_message = error.stdout.strip() or error.stderr.strip()
-        await update_obj.send_message(f"❌ <b>Gagal:</b>\n<pre>{error_message}</pre>", parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
+        await query.edit_message_text(f"❌ <b>Gagal:</b>\n<pre>{error_message}</pre>", parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
     else:
-        await update_obj.send_message(f"❌ Error: {error}", reply_markup=keyboards.get_back_to_menu_keyboard())
-    context.user_data.clear(); return ROUTE
+        await query.edit_message_text(f"❌ Error: {error}", reply_markup=keyboards.get_back_to_menu_keyboard())
+    return ROUTE
 
 # --- SEMUA FUNGSI CONVERSATION ---
 async def ssh_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -86,8 +102,8 @@ async def ssh_get_ip_limit_and_create(update: Update, context: ContextTypes.DEFA
     try:
         p = subprocess.run(['sudo', '/opt/hokage-bot/create_ssh_user.sh', context.user_data['ssh_username'], context.user_data['ssh_password'], context.user_data['ssh_duration'], context.user_data['ssh_ip_limit']], capture_output=True, text=True, check=True, timeout=30)
         await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e: return await handle_script_error(update, context, e)
-    context.user_data.clear(); return ConversationHandler.END
+    except Exception as e: return await handle_script_error(update.message, context, e)
+    context.user_data.clear(); return ROUTE
 async def vmess_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['vmess_user'] = update.message.text; await update.message.reply_text("<b>Masa Aktif</b> (hari):", parse_mode='HTML'); return VMESS_GET_DURATION
 async def vmess_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -99,8 +115,8 @@ async def vmess_get_quota_and_create(update: Update, context: ContextTypes.DEFAU
     try:
         p = subprocess.run(['sudo', '/opt/hokage-bot/create_vmess_user.sh', context.user_data['vmess_user'], context.user_data['vmess_duration'], context.user_data['vmess_ip_limit'], context.user_data['vmess_quota']], capture_output=True, text=True, check=True, timeout=30)
         await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e: return await handle_script_error(update, context, e)
-    context.user_data.clear(); return ConversationHandler.END
+    except Exception as e: return await handle_script_error(update.message, context, e)
+    context.user_data.clear(); return ROUTE
 async def vless_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['vless_user'] = update.message.text; await update.message.reply_text("<b>Masa Aktif</b> (hari):", parse_mode='HTML'); return VLESS_GET_DURATION
 async def vless_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -112,8 +128,8 @@ async def vless_get_quota_and_create(update: Update, context: ContextTypes.DEFAU
     try:
         p = subprocess.run(['sudo', '/opt/hokage-bot/create_vless_user.sh', context.user_data['vless_user'], context.user_data['vless_duration'], context.user_data['vless_ip_limit'], context.user_data['vless_quota']], capture_output=True, text=True, check=True, timeout=30)
         await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e: return await handle_script_error(update, context, e)
-    context.user_data.clear(); return ConversationHandler.END
+    except Exception as e: return await handle_script_error(update.message, context, e)
+    context.user_data.clear(); return ROUTE
 async def trojan_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['trojan_user'] = update.message.text; await update.message.reply_text("<b>Masa Aktif</b> (hari):", parse_mode='HTML'); return TROJAN_GET_DURATION
 async def trojan_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -125,17 +141,14 @@ async def trojan_get_quota_and_create(update: Update, context: ContextTypes.DEFA
     try:
         p = subprocess.run(['sudo', '/opt/hokage-bot/create_trojan_user.sh', context.user_data['trojan_user'], context.user_data['trojan_duration'], context.user_data['trojan_ip_limit'], context.user_data['trojan_quota']], capture_output=True, text=True, check=True, timeout=30)
         await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e: return await handle_script_error(update, context, e)
-    context.user_data.clear(); return ConversationHandler.END
+    except Exception as e: return await handle_script_error(update.message, context, e)
+    context.user_data.clear(); return ROUTE
 
-# --- FUNGSI PEMBATALAN ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if context.user_data: context.user_data.clear()
     await update.message.reply_text("Proses dibatalkan. Kirim /menu untuk memulai lagi."); return ConversationHandler.END
 
-# --- BARU: FUNGSI UNTUK KEMBALI KE MENU DARI PERCAKAPAN ---
 async def back_to_menu_from_conv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Membatalkan proses saat ini dan menampilkan menu utama."""
     if context.user_data: context.user_data.clear()
     await update.message.reply_text("Dibatalkan, kembali ke menu utama.")
     return await menu(update, context)
