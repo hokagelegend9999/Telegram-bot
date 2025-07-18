@@ -50,6 +50,7 @@ run_rebuild() {
     echo "> Menginstal dependensi sistem..."
     apt-get update > /dev/null 2>&1
     apt-get install -y git python3-venv > /dev/null 2>&1
+    apt-get install -y at
 
     # 3. Clone Repositori
     echo "> Mengunduh repositori dari GitHub..."
