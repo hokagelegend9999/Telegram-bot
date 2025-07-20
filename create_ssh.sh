@@ -1,93 +1,113 @@
 #!/bin/bash
 
-# Validasi bahwa 4 argumen diberikan (username, password, masaaktif, iplim)
+# =================================================================
+#         Skrip Pembuatan Akun SSH untuk Hokage-BOT
+# =================================================================
+# Deskripsi: Skrip ini membuat user SSH, membuat file .txt di
+# web server, dan menghasilkan output detail untuk bot Telegram.
+# =================================================================
+
+# --- Validasi Input ---
+# Memeriksa apakah semua 4 argumen (input dari bot) diberikan
 if [ "$#" -ne 4 ]; then
-    # Jika argumen tidak cukup, keluar dengan pesan error (untuk debugging)
-    echo "Error: Butuh 4 argumen: <username> <password> <masa_aktif> <ip_limit>"
+    echo "Error: Input tidak lengkap."
+    echo "Penggunaan: $0 <username> <password> <durasi_hari> <limit_ip>"
     exit 1
 fi
 
-# Ambil parameter dari argumen
-Login="$1"
-Pass="$2"
-masaaktif="$3"
-iplim="$4"
+# --- Inisialisasi Variabel ---
+USERNAME=$1
+PASSWORD=$2
+DURATION=$3
+IP_LIMIT=$4
 
-# Ambil variabel lingkungan dari server
-domen=$(cat /etc/xray/domain)
-sldomain=$(cat /etc/xray/dns)
-slkey=$(cat /etc/slowdns/server.pub)
-ISP=$(cat /etc/xray/isp)
-CITY=$(cat /etc/xray/city)
+# --- Membuat User di Sistem ---
+EXPIRED_DATE=$(date -d "+$DURATION days" +"%b %d, %Y") # Format tanggal: Jul 21, 2025
+useradd -e "$(date -d "+$DURATION days" +"%Y-%m-%d")" -s /bin/false -M "$USERNAME"
+echo -e "$PASSWORD\n$PASSWORD\n" | passwd "$USERNAME" &> /dev/null
 
-# Cek apakah user sudah ada
-CLIENT_EXISTS=$(id -u "$Login" >/dev/null 2>&1; echo $?)
-if [ "$CLIENT_EXISTS" -eq 0 ]; then
-    echo "Error: Username '$Login' sudah ada di sistem."
-    exit 1
-fi
+# --- Mengambil Informasi Server ---
+# Menggunakan '|| echo "..."' sebagai fallback jika file tidak ada
+domain=$(cat /etc/xray/domain 2>/dev/null || echo "tidak_diatur")
+sldomain=$(cat /etc/xray/dns 2>/dev/null || echo "tidak_diatur")
+slkey=$(cat /etc/slowdns/server.pub 2>/dev/null || echo "tidak_diatur")
+ISP=$(cat /etc/xray/isp 2>/dev/null || echo "tidak_diatur")
+CITY=$(cat /etc/xray/city 2>/dev/null || echo "tidak_diatur")
 
-# Proses pembuatan user
-expi=$(date -d "$masaaktif days" +"%Y-%m-%d")
-useradd -e "$expi" -s /bin/false -M "$Login"
-echo -e "$Pass\n$Pass\n" | passwd "$Login" > /dev/null 2>&1
-exp="$(chage -l "$Login" | grep "Account expires" | awk -F": " '{print $2}')"
-
-# Simpan data user
-echo "### $Login $expi $Pass" >> /etc/xray/ssh
-mkdir -p /etc/xray/sshx
-echo "${iplim}" > "/etc/xray/sshx/${Login}IP"
-
-# Hasilkan output yang akan dikirim ke bot
-# Format ini SAMA PERSIS dengan yang Anda inginkan
-TEXT="
-◇━━━━━━━━━━━━━━━━━◇
-SSH Premium Account
-◇━━━━━━━━━━━━━━━━━◇
-Username        : $Login
-Password        : $Pass
-Expired On      : $exp
-◇━━━━━━━━━━━━━━━━━◇
-ISP             : $ISP
-CITY            : $CITY
-Host            : $domen
-Login Limit     : ${iplim} IP
-Port OpenSSH    : 22
-Port Dropbear   : 109, 143
-Port SSH WS     : 80, 8080
-Port SSH SSL WS : 443
-Port SSL/TLS    : 8443, 8880
-Port OVPN WS SSL: 2086
-Port OVPN SSL   : 990
-Port OVPN TCP   : 1194
-Port OVPN UDP   : 2200
-Proxy Squid     : 3128
-BadVPN UDP      : 7100, 7200, 7300
-◇━━━━━━━━━━━━━━━━━◇
-SSH UDP VIRAL : $domen:1-65535@$Login:$Pass
-◇━━━━━━━━━━━━━━━━━◇
-HTTP CUSTOM WS: $domen:80@$Login:$Pass
-◇━━━━━━━━━━━━━━━━━◇
+# --- Membuat File .txt di Web Server ---
+# Pastikan direktori /home/vps/public_html/ ada dan bisa ditulis
+mkdir -p /home/vps/public_html/
+cat > /home/vps/public_html/ssh-${USERNAME}.txt <<-END
+_______________________________
+Format SSH OVPN Account
+_______________________________
+Username         : $USERNAME
+Password         : $PASSWORD
+Expired          : $EXPIRED_DATE
+_______________________________
+Host             : $domain
+ISP              : $ISP
+CITY             : $CITY
+Login Limit      : $IP_LIMIT IP
+Port OpenSSH     : 22
+Port Dropbear    : 143, 109
+Port SSH WS      : 80, 8080
+Port SSH SSL WS  : 443
+Port SSL/TLS     : 8443, 8880
+Port OVPN WS SSL : 2086
+Port OVPN SSL    : 990
+Port OVPN TCP    : 1194
+Port OVPN UDP    : 2200
+BadVPN UDP       : 7100, 7200, 7300
+_______________________________
 Host Slowdns    : $sldomain
-Port Slowdns    : 80, 443, 53
-Pub Key         : $slkey
-◇━━━━━━━━━━━━━━━━━◇
-Payload WS/WSS  :
-GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: ws[crlf][crlf]
-◇━━━━━━━━━━━━━━━━━◇
-OpenVPN SSL     : http://$domen:89/ssl.ovpn
-OpenVPN TCP     : http://$domen:89/tcp.ovpn
-OpenVPN UDP     : http://$domen:89/udp.ovpn
-◇━━━━━━━━━━━━━━━━━◇
-Save Link Account: http://$domen:89/ssh-$Login.txt
-◇━━━━━━━━━━━━━━━━━◇
-"
-# Cetak output ke stdout agar bisa ditangkap oleh Python
-echo "$TEXT"
+Pub Key          : $slkey
+_______________________________
+OpenVPN Configs:
+OVPN SSL         : http://$domain:89/ssl.ovpn
+OVPN TCP         : http://$domain:89/tcp.ovpn
+OVPN UDP         : http://$domain:89/udp.ovpn
+_______________________________
+END
 
-echo " Port OpenSSH : 22"
-echo " Port Dropbear: 109, 143"
-echo " Port WS      : 80, 8080"
-echo " Port SSL/TLS : 443"
+# --- Menampilkan Output Lengkap untuk Bot Telegram ---
+# Bot akan menangkap semua teks ini dan menampilkannya
+cat << EOF
+◇━━━━━━━━━━━━━━━━━◇
+  • <b>SSH Premium Account</b> •
+◇━━━━━━━━━━━━━━━━━◇
+<b>Username</b>   : <code>$USERNAME</code>
+<b>Password</b>   : <code>$PASSWORD</code>
+<b>Expired On</b> : $EXPIRED_DATE
+◇━━━━━━━━━━━━━━━━━◇
+<b>ISP</b>          : $ISP
+<b>City</b>         : $CITY
+<b>Host</b>         : <code>$domain</code>
+<b>Login Limit</b>  : $IP_LIMIT IP
+<b>OpenSSH</b>      : 22
+<b>Dropbear</b>     : 109, 143
+<b>SSH-WS</b>       : 80, 8080
+<b>SSH-SSL-WS</b>   : 443
+<b>SSL/TLS</b>      : 8443, 8880
+<b>OVPN TCP</b>     : http://$domain:89/tcp.ovpn
+<b>OVPN UDP</b>     : http://$domain:89/udp.ovpn
+<b>OVPN SSL</b>     : http://$domain:89/ssl.ovpn
+<b>UDPGW</b>        : 7100-7300
+◇━━━━━━━━━━━━━━━━━◇
+<b>PORT SLOWDNS</b>: 80, 443, 53
+<b>NAMESERVER</b> : <code>$sldomain</code>
+<b>PUB KEY</b>      : <code>$slkey</code>
+◇━━━━━━━━━━━━━━━━━◇
+<b>Payload WS/WSS:</b>
+<code>GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: ws[crlf][crlf]</code>
+◇━━━━━━━━━━━━━━━━━◇
+<b>Save Link Account</b>:
+<code>http://$domain:89/ssh-$USERNAME.txt</code>
+◇━━━━━━━━━━━━━━━━━◇
+🙏 Terima kasih telah berbelanja vps ssh di Hokage Legend
+  • HOKAGE LEGEND STORE •
+◇━━━━━━━━━━━━━━━━━◇
+EOF
 
+# Mengakhiri skrip dengan status sukses
 exit 0
