@@ -1,7 +1,7 @@
-# File: handlers.py (Versi Final, Lengkap, dan Stabil)
+# File: handlers.py (Versi Absolut, 100% Lengkap dan Final)
 
 import subprocess
-from telegram import Update
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
@@ -23,94 +23,79 @@ import keyboards, config, database
 
 # --- Fungsi Bantuan ---
 def is_admin(update: Update) -> bool:
-    """Mengecek apakah pengguna adalah admin."""
     return update.effective_user.id == config.ADMIN_TELEGRAM_ID
 
 # --- Handler Perintah Dasar ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    database.add_user_if_not_exists(user.id, user.first_name, user.username)
+    user = update.effective_user; database.add_user_if_not_exists(user.id, user.first_name, user.username)
     await update.message.reply_text("Selamat datang! Gunakan /menu untuk melihat semua fitur.")
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("Silakan pilih dari menu di bawah:", reply_markup=keyboards.get_main_menu_keyboard())
-    return ROUTE
+    await update.message.reply_text("Silakan pilih dari menu di bawah:", reply_markup=keyboards.get_main_menu_keyboard()); return ROUTE
 
 async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Perintah khusus untuk admin."""
-    if not is_admin(update):
-        await update.message.reply_text("Perintah ini hanya untuk Admin.")
-        return
+    if not is_admin(update): await update.message.reply_text("Perintah ini hanya untuk Admin."); return
     await update.message.reply_text("Selamat datang di Panel Admin.")
 
 # --- Handler Tombol & Router Utama ---
 async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query; await query.answer(); command = query.data
-    
+
     # Navigasi Menu
     if command in ["main_menu", "back_to_main_menu"]:
         await query.edit_message_text("Menu Utama:", reply_markup=keyboards.get_main_menu_keyboard()); return ROUTE
-    
     menu_map = {"menu_ssh": "SSH", "menu_vmess": "VMESS", "menu_vless": "VLESS", "menu_trojan": "TROJAN"}
     if command in menu_map:
         keyboard_func = getattr(keyboards, f"get_{menu_map[command].lower()}_menu_keyboard")
         await query.edit_message_text(f"<b>{menu_map[command]} PANEL MENU</b>", reply_markup=keyboard_func(), parse_mode='HTML'); return ROUTE
 
-    # Eksekusi Skrip Langsung
-    script_map = { 
-        "ssh_trial": "create_trial_ssh.sh", 
-        "vmess_trial": "create_trial_vmess.sh", 
-        "vless_trial": "create_trial_vless.sh", 
-        "trojan_trial": "create_trial_trojan.sh", 
-        "menu_restart": "restart_for_bot.sh",
-        "menu_running": "check_status_for_bot.sh",
-        "menu_backup": "backup_for_bot.sh"
-    }
-    if command in script_map:
-        # Tentukan pesan tunggu
-        wait_message = f"⏳ Memproses {command.replace('_', ' ').title()}..."
-        if command == "menu_restart":
-            wait_message = "⏳ *Sedang me-restart semua layanan...*\n\nMohon tunggu sekitar 30 detik."
-        elif command == "menu_backup":
-            wait_message = "⚙️ *Memulai proses backup...*\n\nIni bisa memakan waktu beberapa menit."
-        
-        await query.edit_message_text(wait_message, parse_mode='Markdown')
-        
-        # Jalankan skrip
-        try:
-            # Beri timeout lebih lama untuk backup
-            timeout = 300 if command == "menu_backup" else 60
-            p = subprocess.run(['sudo', f'/opt/hokage-bot/{script_map[command]}'], capture_output=True, text=True, check=True, timeout=timeout)
-            await query.edit_message_text(f"✅ Hasil:\n<pre>{p.stdout}</pre>", parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-        except Exception as e: 
-            return await handle_script_error(query, context, e)
+    # Logika Konfirmasi Restore
+    if command == "menu_restore":
+        text = ("⚠️ <b>PERINGATAN!</b> ⚠️\n\nAnda akan menjalankan proses <b>RESTORE</b> dari backup terbaru. "
+                "Tindakan ini akan <b>MENIMPA SEMUA KONFIGURASI</b>. Yakin ingin melanjutkan?")
+        restore_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Ya, Lanjutkan Restore", callback_data="confirm_restore")],
+            [InlineKeyboardButton("❌ Batal", callback_data="main_menu")]
+        ])
+        await query.edit_message_text(text, parse_mode='HTML', reply_markup=restore_keyboard)
         return ROUTE
 
-    # Memulai Conversation (Membuat Akun)
-    conv_starters = { 
-        "ssh_add": ("Username SSH:", SSH_GET_USERNAME), 
-        "vmess_add": ("User Vmess:", VMESS_GET_USER), 
-        "vless_add": ("User Vless:", VLESS_GET_USER), 
-        "trojan_add": ("User Trojan:", TROJAN_GET_USER) 
+    # Eksekusi Skrip Langsung
+    script_map = { 
+        "ssh_trial": "create_trial_ssh.sh", "vmess_trial": "create_trial_vmess.sh", 
+        "vless_trial": "create_trial_vless.sh", "trojan_trial": "create_trial_trojan.sh", 
+        "menu_restart": "restart_for_bot.sh", "menu_running": "check_status_for_bot.sh",
+        "menu_backup": "backup_for_bot.sh", "confirm_restore": "restore_for_bot.sh"
     }
-    if command in conv_starters:
-        text, state = conv_starters[command]; 
-        await query.edit_message_text(f"<b>{text}</b>", parse_mode='HTML'); 
-        return state
+    if command in script_map:
+        wait_message = f"⏳ Memproses {command.replace('_', ' ').replace('menu ', '').title()}..."
+        timeout = 120
+        if command == "confirm_restore" or command == "menu_backup":
+            wait_message = f"⚙️ *Memulai proses {command.replace('menu_', '')}...*\n\nIni bisa memakan waktu beberapa menit."
+            timeout = 300
 
-    if command == "close_menu": 
-        await query.edit_message_text("Menu ditutup."); 
-        return ConversationHandler.END
-        
-    await query.edit_message_text(f"Fitur <b>{command}</b> belum siap.", parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard()); 
-    return ROUTE
+        await query.edit_message_text(wait_message, parse_mode='Markdown')
+        try:
+            p = subprocess.run(['sudo', f'/opt/hokage-bot/{script_map[command]}'], capture_output=True, text=True, check=True, timeout=timeout)
+            await query.edit_message_text(f"✅ Hasil:\n<pre>{p.stdout}</pre>", parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
+        except Exception as e: return await handle_script_error(query, context, e)
+        return ROUTE
+
+    # Memulai Conversation
+    conv_starters = { 
+        "ssh_add": ("Username SSH:", SSH_GET_USERNAME), "vmess_add": ("User Vmess:", VMESS_GET_USER), 
+        "vless_add": ("User Vless:", VLESS_GET_USER), "trojan_add": ("User Trojan:", TROJAN_GET_USER) 
+    }
+    if command in conv_starters: 
+        text, state = conv_starters[command]; await query.edit_message_text(f"<b>{text}</b>", parse_mode='HTML'); return state
+
+    if command == "close_menu": await query.edit_message_text("Menu ditutup."); return ConversationHandler.END
+    await query.edit_message_text(f"Fitur <b>{command}</b> belum siap.", parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard()); return ROUTE
 
 async def handle_script_error(query, context: ContextTypes.DEFAULT_TYPE, error: Exception):
     msg = f"Error: {error}"
-    if isinstance(error, subprocess.CalledProcessError): 
-        msg = error.stdout.strip() or error.stderr.strip()
-    await query.edit_message_text(f"❌ <b>Gagal:</b>\n<pre>{msg}</pre>", parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard()); 
-    return ROUTE
+    if isinstance(error, subprocess.CalledProcessError): msg = error.stdout.strip() or error.stderr.strip()
+    await query.edit_message_text(f"❌ <b>Gagal:</b>\n<pre>{msg}</pre>", parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard()); return ROUTE
 
 # --- FUNGSI-FUNGSI CONVERSATION (LENGKAP) ---
 async def ssh_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -155,9 +140,7 @@ async def trojan_get_quota_and_create(update: Update, context: ContextTypes.DEFA
 
 # --- Fallback & Cancel ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if context.user_data: context.user_data.clear()
-    await update.message.reply_text("Proses dibatalkan."); return ConversationHandler.END
+    if context.user_data: context.user_data.clear(); await update.message.reply_text("Proses dibatalkan."); return ConversationHandler.END
 
 async def back_to_menu_from_conv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if context.user_data: context.user_data.clear()
-    await update.message.reply_text("Dibatalkan, kembali ke menu utama."); return await menu(update, context)
+    if context.user_data: context.user_data.clear(); await update.message.reply_text("Dibatalkan, kembali ke menu utama."); return await menu(update, context)
