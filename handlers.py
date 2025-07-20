@@ -1,4 +1,4 @@
-# File: handlers.py (Versi Final Absolut)
+# File: handlers.py (Versi Final untuk GitHub)
 
 import subprocess
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -65,7 +65,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await query.edit_message_text(f"Fitur <b>{command}</b> belum siap.", parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard()); return ROUTE
 
 async def handle_script_error(update_obj, context: ContextTypes.DEFAULT_TYPE, error: Exception):
-    msg = f"Error: {error}"
+    msg = f"Terjadi kesalahan: {error}"
     if isinstance(error, subprocess.CalledProcessError): msg = error.stdout.strip() or error.stderr.strip() or "Skrip gagal tanpa output error."
     if hasattr(update_obj, 'edit_message_text'):
         await update_obj.edit_message_text(f"❌ <b>Gagal:</b>\n<pre>{msg}</pre>", parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
@@ -87,7 +87,7 @@ async def ssh_get_ip_limit_and_create(update: Update, context: ContextTypes.DEFA
         p = subprocess.run(['sudo', '/opt/hokage-bot/create_ssh.sh', ud['username'], ud['password'], ud['duration'], ud['ip_limit']], capture_output=True, text=True, check=True, timeout=30)
         await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
     except Exception as e: await handle_script_error(update.message, context, e)
-    context.user_data.clear(); return ConversationHandler.END
+    context.user_data.clear(); return ROUTE
 
 async def vmess_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['user'] = update.message.text; await update.message.reply_text("Masa Aktif (hari):"); return VMESS_GET_DURATION
@@ -97,7 +97,7 @@ async def vmess_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE)
         p = subprocess.run(['sudo', '/opt/hokage-bot/create_vmess_user.sh', ud['user'], ud['duration']], capture_output=True, text=True, check=True, timeout=30)
         await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
     except Exception as e: await handle_script_error(update.message, context, e)
-    context.user_data.clear(); return ConversationHandler.END
+    context.user_data.clear(); return ROUTE
 
 async def vless_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['user'] = update.message.text; await update.message.reply_text("Masa Aktif (hari):"); return VLESS_GET_DURATION
@@ -107,7 +107,7 @@ async def vless_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE)
         p = subprocess.run(['sudo', '/opt/hokage-bot/create_vless_user.sh', ud['user'], ud['duration']], capture_output=True, text=True, check=True, timeout=30)
         await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
     except Exception as e: await handle_script_error(update.message, context, e)
-    context.user_data.clear(); return ConversationHandler.END
+    context.user_data.clear(); return ROUTE
 
 async def trojan_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['user'] = update.message.text; await update.message.reply_text("Masa Aktif (hari):"); return TROJAN_GET_DURATION
@@ -117,13 +117,9 @@ async def trojan_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE
         p = subprocess.run(['sudo', '/opt/hokage-bot/create_trojan_user.sh', ud['user'], ud['duration']], capture_output=True, text=True, check=True, timeout=30)
         await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
     except Exception as e: await handle_script_error(update.message, context, e)
-    context.user_data.clear(); return ConversationHandler.END
+    context.user_data.clear(); return ROUTE
 
-# --- Fallback & Cancel ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if context.user_data: context.user_data.clear()
-    await update.message.reply_text("Proses dibatalkan."); return ConversationHandler.END
-
+    if context.user_data: context.user_data.clear(); await update.message.reply_text("Proses dibatalkan."); return ConversationHandler.END
 async def back_to_menu_from_conv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if context.user_data: context.user_data.clear()
-    await update.message.reply_text("Dibatalkan, kembali ke menu utama."); return await menu(update, context)
+    if context.user_data: context.user_data.clear(); await update.message.reply_text("Dibatalkan, kembali ke menu utama."); return await menu(update, context)
