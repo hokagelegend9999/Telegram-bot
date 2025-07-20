@@ -1,17 +1,17 @@
 #!/bin/bash
 
 # =================================================================
-#      Skrip Installer Hokage-BOT (GENOM USER PREMIUM)
+#      Installer Final Hokage-BOT (Versi Sinkronisasi GitHub)
 # =================================================================
-# Deskripsi: Menggabungkan file dari GitHub dengan pembuatan skrip
-# penting secara lokal untuk memastikan kompatibilitas penuh.
+# Deskripsi: Skrip ini akan memasang bot dari repositori GitHub
+# Anda, termasuk semua file Python dan Shell yang sudah diperbaiki.
 # =================================================================
 
 # --- Konfigurasi ---
 REPO_URL="https://github.com/hokagelegend9999/Telegram-bot.git"
 APP_DIR="/opt/hokage-bot"
 SERVICE_FILE="/etc/systemd/system/hokage-bot.service"
-SUDOERS_FILE="/etc/sudoers.d/hokage-bot-sudo"
+SUDOERS_FILE="/etc/sudoers.d/hokage-bot"
 
 # --- Warna ---
 GREEN='\033[0;32m'
@@ -21,162 +21,136 @@ NC='\033[0m'
 
 # --- Fungsi ---
 
+# Memeriksa apakah skrip dijalankan sebagai root
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        echo -e "${RED}Error: Skrip ini harus dijalankan sebagai root.${NC}"
+        echo -e "${RED}Error: Skrip ini harus dijalankan sebagai root. Gunakan 'sudo ./install_bot.sh'${NC}"
         exit 1
     fi
 }
 
+# Menampilkan header
 show_header() {
     clear
     echo -e "${GREEN}=====================================================${NC}"
-    echo -e "${GREEN}==     Installer Hokage-BOT (Versi Hybrid Final)   ==${NC}"
+    echo -e "${GREEN}==     Installer Final Hokage-BOT (GitHub Sync)    ==${NC}"
     echo -e "${GREEN}=====================================================${NC}"
     echo
 }
 
-# FASE 1: Membersihkan Instalasi Lama
+# FASE 1: Pembersihan Total
 run_cleanup() {
-    echo -e "${YELLOW}--- FASE 1: Menghapus Total Instalasi Lama ---${NC}"
+    echo -e "${YELLOW}--- FASE 1: Menghapus Instalasi Lama ---${NC}"
+    echo "> Menghentikan layanan bot yang mungkin berjalan..."
     systemctl stop hokage-bot.service > /dev/null 2>&1
     systemctl disable hokage-bot.service > /dev/null 2>&1
-    rm -rf "$APP_DIR" "$SERVICE_FILE" "$SUDOERS_FILE" /etc/cron.d/hokage_trial_cleanup
+
+    echo "> Menghapus direktori, layanan, dan file izin lama..."
+    rm -rf "$APP_DIR"
+    rm -f "$SERVICE_FILE"
+    rm -f "$SUDOERS_FILE"
+    
+    # Menghapus cache Python jika ada
+    find / -type d -name "__pycache__" -exec rm -r {} + 2>/dev/null
+    
+    echo "> Memuat ulang konfigurasi systemd..."
     systemctl daemon-reload
     echo -e "${GREEN}✓ Pembersihan selesai.${NC}"
     echo
 }
 
-# FASE 2: Membangun Ulang
-run_rebuild() {
-    echo -e "${YELLOW}--- FASE 2: Instalasi & Konfigurasi Ulang ---${NC}"
+# FASE 2: Instalasi dari Awal
+run_install() {
+    echo -e "${YELLOW}--- FASE 2: Membangun Ulang dari GitHub ---${NC}"
 
     # 1. Meminta Kredensial
     read -p "Masukkan Token Bot Telegram Anda: " BOT_TOKEN
-    read -p "Masukkan ID Telegram Admin Anda: " ADMIN_ID
+    read -p "Masukkan ID Telegram Admin Anda (hanya angka): " ADMIN_ID
     if [ -z "$BOT_TOKEN" ] || [ -z "$ADMIN_ID" ]; then
-        echo -e "${RED}Error: Token/ID tidak boleh kosong.${NC}"; exit 1;
+        echo -e "${RED}Error: Token Bot dan ID Admin tidak boleh kosong.${NC}"
+        exit 1
     fi
     echo
 
-    # 2. Instal Dependensi
-    echo "> Menginstal dependensi sistem (git, python-venv, at, pip)..."
+    # 2. Instal Dependensi Sistem
+    echo "> Menginstal dependensi sistem (git, python3-venv, pip, jq, at)..."
     apt-get update > /dev/null 2>&1
-    apt-get install -y git python3-venv python3-pip at > /dev/null 2>&1
+    apt-get install -y git python3-venv python3-pip jq at > /dev/null 2>&1
+    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa menginstal dependensi sistem.${NC}"; exit 1; fi
+    echo -e "${GREEN}✓ Dependensi sistem terinstal.${NC}"
 
-    # 3. Clone Repositori
-    echo "> Mengunduh file dasar dari GitHub..."
-    git clone --depth 1 "$REPO_URL" "$APP_DIR"
-    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa mengunduh repositori.${NC}"; exit 1; fi
+    # 3. Clone Repositori dari GitHub
+    echo "> Mengunduh semua file terbaru dari repositori Anda..."
+    git clone "$REPO_URL" "$APP_DIR"
+    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa mengunduh repositori dari GitHub.${NC}"; exit 1; fi
+    echo -e "${GREEN}✓ Semua file berhasil diunduh ke ${APP_DIR}.${NC}"
 
-    # 4. MEMBUAT/MENIMPA FILE SKRIP PENTING (Kunci Perbaikan)
-    echo "> Membuat skrip penting yang tidak ada di GitHub..."
-    
-    # Membuat create_trial_ssh.sh (diambil dari skrip asli Anda)
-    tee ${APP_DIR}/create_trial_ssh.sh > /dev/null <<'EOF'
-#!/bin/bash
-TIMER_MINUTE="60"; TRIAL_LOG_FILE="/etc/hokage-bot/trial_users.log"
-domain=$(cat /etc/xray/domain); sldomain=$(cat /etc/xray/dns); slkey=$(cat /etc/slowdns/server.pub); ISP=$(cat /etc/xray/isp); CITY=$(cat /etc/xray/city)
-Login="trial-$(tr -dc A-Z0-9 </dev/urandom | head -c 5)"
-Pass="1"; exp=$(date -d "0 days" +"%Y-%m-%d")
-useradd -e "$exp" -s /bin/false -M "$Login"
-if [ $? -ne 0 ]; then echo "Error: Gagal menjalankan useradd."; exit 1; fi
-echo -e "$Pass\n$Pass\n" | passwd "$Login" &> /dev/null
-echo "### $Login $exp $Pass" >> /etc/xray/ssh
-mkdir -p /etc/hokage-bot
-EXP_TIME=$(date +%s -d "$TIMER_MINUTE minutes")
-echo "${EXP_TIME}:${Login}" >> "$TRIAL_LOG_FILE"
-cat << EOT
-◇━━━━━━━━━━━━━━━━━◇
-<b>Trial SSH Premium Account</b>
-◇━━━━━━━━━━━━━━━━━◇
-<b>Username</b>      : <code>$Login</code>
-<b>Password</b>      : <code>$Pass</code>
-<b>Expired On</b>      : $TIMER_MINUTE Minutes
-◇━━━━━━━━━━━━━━━━━◇
-<b>Host</b>            : <code>$domain</code>
-<b>Host Slowdns</b>    : <code>$sldomain</code>
-◇━━━━━━━━━━━━━━━━━◇
-EOT
-EOF
-
-    # Membuat skrip pembersih trial_cleanup.sh (diambil dari skrip asli Anda)
-    tee ${APP_DIR}/trial_cleanup.sh > /dev/null <<'EOF'
-#!/bin/bash
-TRIAL_LOG_FILE="/etc/hokage-bot/trial_users.log"
-if [ ! -f "$TRIAL_LOG_FILE" ]; then exit 0; fi
-CURRENT_TIME=$(date +%s)
-TMP_LOG_FILE="${TRIAL_LOG_FILE}.tmp"
-touch "$TMP_LOG_FILE"
-while IFS= read -r line; do
-    EXP_TIME=$(echo "$line" | cut -d: -f1)
-    USERNAME=$(echo "$line" | cut -d: -f2)
-    if [ "$CURRENT_TIME" -gt "$EXP_TIME" ]; then
-        userdel -r "$USERNAME"
-    else
-        echo "$line" >> "$TMP_LOG_FILE"
-    fi
-done < "$TRIAL_LOG_FILE"
-mv "$TMP_LOG_FILE" "$TRIAL_LOG_FILE"
-EOF
-    echo -e "${GREEN}✓ Skrip penting berhasil dibuat.${NC}"
-
-    # 5. Membuat Cron Job untuk skrip pembersih
-    echo "> Membuat penjadwal (cron job) untuk akun trial..."
-    echo "* * * * * root /opt/hokage-bot/trial_cleanup.sh" > /etc/cron.d/hokage_trial_cleanup
-
-    # 6. Buat file config.py baru
-    echo "> Membuat file konfigurasi..."
-    rm -f "${APP_DIR}/config.py"
-    cat <<EOF > ${APP_DIR}/config.py
+    # 4. Membuat File Konfigurasi (config.py)
+    echo "> Membuat file konfigurasi (config.py)..."
+    cat <<EOF > "${APP_DIR}/config.py"
+# File ini dibuat secara otomatis oleh skrip installer
 BOT_TOKEN = "${BOT_TOKEN}"
 ADMIN_TELEGRAM_ID = ${ADMIN_ID}
-SERVER_IP = "$(hostname -I | awk '{print $1}')"
 EOF
+    echo -e "${GREEN}✓ File config.py berhasil dibuat.${NC}"
 
-    # 7. Finalisasi Instalasi
-    echo "> Menyelesaikan instalasi akhir..."
+    # 5. Menyiapkan Lingkungan Python & Instal Library
+    echo "> Menyiapkan virtual environment Python..."
     python3 -m venv "${APP_DIR}/venv"
+    
+    echo "> Menginstal library Python dari requirements.txt..."
     source "${APP_DIR}/venv/bin/activate"
     pip install -r "${APP_DIR}/requirements.txt" > /dev/null 2>&1
     deactivate
+    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa menginstal library Python.${NC}"; exit 1; fi
+    echo -e "${GREEN}✓ Semua library Python berhasil diinstal.${NC}"
 
-    # Atur semua izin yang diperlukan
+    # 6. Mengatur Izin Eksekusi dan SUDO
+    echo "> Memberikan izin eksekusi pada semua file skrip (.sh)..."
     chmod +x ${APP_DIR}/*.sh
-    echo "root ALL=(ALL) NOPASSWD: ${APP_DIR}/*.sh" > $SUDOERS_FILE
-    chmod 440 $SUDOERS_FILE
-    
-    # Buat layanan systemd
+
+    echo "> Mengatur izin sudo agar bot bisa menjalankan skrip..."
+    echo "root ALL=(ALL) NOPASSWD: ${APP_DIR}/*.sh" > "$SUDOERS_FILE"
+    chmod 440 "$SUDOERS_FILE"
+    echo -e "${GREEN}✓ Semua izin berhasil dikonfigurasi.${NC}"
+
+    # 7. Membuat dan Mengaktifkan Layanan Systemd
+    echo "> Membuat file layanan systemd untuk bot..."
     cat <<EOF > ${SERVICE_FILE}
 [Unit]
-Description=Hokage-BOT Hybrid Service
+Description=Hokage-BOT Service (GitHub Version)
 After=network.target
+
 [Service]
 User=root
+Group=root
 WorkingDirectory=${APP_DIR}
 ExecStart=${APP_DIR}/venv/bin/python3 main.py
 Restart=always
+RestartSec=5
+
 [Install]
 WantedBy=multi-user.target
 EOF
-    
-    # Jalankan layanan
+
+    echo "> Mengaktifkan dan memulai layanan bot..."
     systemctl daemon-reload
     systemctl enable hokage-bot.service > /dev/null 2>&1
-    systemctl restart hokage-bot.service
+    systemctl start hokage-bot.service
+    echo -e "${GREEN}✓ Layanan bot berhasil dibuat dan dijalankan.${NC}"
 }
 
 # --- EKSEKUSI UTAMA ---
 check_root
 show_header
 run_cleanup
-run_rebuild
+run_install
 
 echo
 echo -e "${GREEN}=====================================================${NC}"
-echo -e "${GREEN}==      INSTALASI HYBRID BERHASIL SELESAI          ==${NC}"
+echo -e "${GREEN}==           INSTALASI BERHASIL SELESAI            ==${NC}"
 echo -e "${GREEN}=====================================================${NC}"
 echo
-echo "Bot Anda kini berjalan dengan file dari GitHub yang dikombinasikan"
-echo "dengan skrip penting yang dibuat saat instalasi."
-echo -e "Periksa status: ${YELLOW}systemctl status hokage-bot.service${NC}"
+echo "Selamat! Bot Anda sekarang berjalan menggunakan semua file terbaru dari GitHub."
+echo -e "Untuk memeriksa status bot, gunakan perintah: ${YELLOW}systemctl status hokage-bot.service${NC}"
+echo
