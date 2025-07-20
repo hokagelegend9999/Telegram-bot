@@ -1,10 +1,7 @@
 #!/bin/bash
 
 # =================================================================
-#      Installer Final Hokage-BOT (Versi Sinkronisasi GitHub)
-# =================================================================
-# Deskripsi: Skrip ini akan memasang bot dari repositori GitHub
-# Anda, termasuk semua file Python dan Shell yang sudah diperbaiki.
+#      Installer Final Hokage-BOT (Versi Sinkronisasi GitHub v2)
 # =================================================================
 
 # --- Konfigurasi ---
@@ -21,15 +18,13 @@ NC='\033[0m'
 
 # --- Fungsi ---
 
-# Memeriksa apakah skrip dijalankan sebagai root
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
-        echo -e "${RED}Error: Skrip ini harus dijalankan sebagai root. Gunakan 'sudo ./install_bot.sh'${NC}"
+        echo -e "${RED}Error: Skrip ini harus dijalankan sebagai root.${NC}"
         exit 1
     fi
 }
 
-# Menampilkan header
 show_header() {
     clear
     echo -e "${GREEN}=====================================================${NC}"
@@ -41,6 +36,10 @@ show_header() {
 # FASE 1: Pembersihan Total
 run_cleanup() {
     echo -e "${YELLOW}--- FASE 1: Menghapus Instalasi Lama ---${NC}"
+    
+    # Pindah ke direktori aman (seperti /root) sebelum menghapus apa pun
+    cd /root || { echo -e "${RED}Gagal pindah ke direktori /root.${NC}"; exit 1; }
+
     echo "> Menghentikan layanan bot yang mungkin berjalan..."
     systemctl stop hokage-bot.service > /dev/null 2>&1
     systemctl disable hokage-bot.service > /dev/null 2>&1
@@ -49,9 +48,6 @@ run_cleanup() {
     rm -rf "$APP_DIR"
     rm -f "$SERVICE_FILE"
     rm -f "$SUDOERS_FILE"
-    
-    # Menghapus cache Python jika ada
-    find / -type d -name "__pycache__" -exec rm -r {} + 2>/dev/null
     
     echo "> Memuat ulang konfigurasi systemd..."
     systemctl daemon-reload
@@ -67,60 +63,56 @@ run_install() {
     read -p "Masukkan Token Bot Telegram Anda: " BOT_TOKEN
     read -p "Masukkan ID Telegram Admin Anda (hanya angka): " ADMIN_ID
     if [ -z "$BOT_TOKEN" ] || [ -z "$ADMIN_ID" ]; then
-        echo -e "${RED}Error: Token Bot dan ID Admin tidak boleh kosong.${NC}"
-        exit 1
+        echo -e "${RED}Error: Token/ID tidak boleh kosong.${NC}"; exit 1;
     fi
     echo
 
     # 2. Instal Dependensi Sistem
-    echo "> Menginstal dependensi sistem (git, python3-venv, pip, jq, at)..."
+    echo "> Menginstal dependensi sistem..."
     apt-get update > /dev/null 2>&1
     apt-get install -y git python3-venv python3-pip jq at > /dev/null 2>&1
-    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa menginstal dependensi sistem.${NC}"; exit 1; fi
+    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa menginstal dependensi.${NC}"; exit 1; fi
     echo -e "${GREEN}✓ Dependensi sistem terinstal.${NC}"
 
     # 3. Clone Repositori dari GitHub
     echo "> Mengunduh semua file terbaru dari repositori Anda..."
+    # Buat direktori aplikasi secara eksplisit untuk memastikan ada
+    mkdir -p "$APP_DIR"
     git clone "$REPO_URL" "$APP_DIR"
-    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa mengunduh repositori dari GitHub.${NC}"; exit 1; fi
-    echo -e "${GREEN}✓ Semua file berhasil diunduh ke ${APP_DIR}.${NC}"
+    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa mengunduh repositori.${NC}"; exit 1; fi
+    echo -e "${GREEN}✓ Semua file berhasil diunduh.${NC}"
 
     # 4. Membuat File Konfigurasi (config.py)
     echo "> Membuat file konfigurasi (config.py)..."
     cat <<EOF > "${APP_DIR}/config.py"
-# File ini dibuat secara otomatis oleh skrip installer
+# Dibuat otomatis oleh installer
 BOT_TOKEN = "${BOT_TOKEN}"
 ADMIN_TELEGRAM_ID = ${ADMIN_ID}
 EOF
     echo -e "${GREEN}✓ File config.py berhasil dibuat.${NC}"
 
-    # 5. Menyiapkan Lingkungan Python & Instal Library
-    echo "> Menyiapkan virtual environment Python..."
+    # 5. Menyiapkan Lingkungan Python
+    echo "> Menyiapkan virtual environment & menginstal library..."
     python3 -m venv "${APP_DIR}/venv"
-    
-    echo "> Menginstal library Python dari requirements.txt..."
     source "${APP_DIR}/venv/bin/activate"
     pip install -r "${APP_DIR}/requirements.txt" > /dev/null 2>&1
     deactivate
     if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa menginstal library Python.${NC}"; exit 1; fi
-    echo -e "${GREEN}✓ Semua library Python berhasil diinstal.${NC}"
+    echo -e "${GREEN}✓ Lingkungan Python siap.${NC}"
 
-    # 6. Mengatur Izin Eksekusi dan SUDO
-    echo "> Memberikan izin eksekusi pada semua file skrip (.sh)..."
+    # 6. Mengatur Izin
+    echo "> Memberikan izin eksekusi & sudo..."
     chmod +x ${APP_DIR}/*.sh
-
-    echo "> Mengatur izin sudo agar bot bisa menjalankan skrip..."
     echo "root ALL=(ALL) NOPASSWD: ${APP_DIR}/*.sh" > "$SUDOERS_FILE"
     chmod 440 "$SUDOERS_FILE"
-    echo -e "${GREEN}✓ Semua izin berhasil dikonfigurasi.${NC}"
+    echo -e "${GREEN}✓ Izin berhasil dikonfigurasi.${NC}"
 
     # 7. Membuat dan Mengaktifkan Layanan Systemd
-    echo "> Membuat file layanan systemd untuk bot..."
+    echo "> Membuat file layanan systemd..."
     cat <<EOF > ${SERVICE_FILE}
 [Unit]
 Description=Hokage-BOT Service (GitHub Version)
 After=network.target
-
 [Service]
 User=root
 Group=root
@@ -128,7 +120,6 @@ WorkingDirectory=${APP_DIR}
 ExecStart=${APP_DIR}/venv/bin/python3 main.py
 Restart=always
 RestartSec=5
-
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -151,6 +142,6 @@ echo -e "${GREEN}=====================================================${NC}"
 echo -e "${GREEN}==           INSTALASI BERHASIL SELESAI            ==${NC}"
 echo -e "${GREEN}=====================================================${NC}"
 echo
-echo "Selamat! Bot Anda sekarang berjalan menggunakan semua file terbaru dari GitHub."
-echo -e "Untuk memeriksa status bot, gunakan perintah: ${YELLOW}systemctl status hokage-bot.service${NC}"
+echo "Selamat! Bot Anda sekarang berjalan."
+echo -e "Untuk memeriksa status, gunakan: ${YELLOW}systemctl status hokage-bot.service${NC}"
 echo
