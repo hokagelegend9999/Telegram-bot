@@ -81,20 +81,6 @@ TEXT="
 <b>Link GRPC</b>     :
 <code>${vmesslink3}</code>
 ◇━━━━━━━━━━━━━━━━━◇
-<b>Expired Until</b>   : $exp
+<b>Expired Until</b> : $exp
 ◇━━━━━━━━━━━━━━━━━◇
 "
-echo "$TEXT"
-
-# Membuat file log untuk user
-LOG_DIR="/etc/vmess/akun"
-LOG_FILE="${LOG_DIR}/log-create-${user}.log"
-mkdir -p "$LOG_DIR"
-echo "◇━━━━━━━━━━━━━━━━━◇" > "$LOG_FILE"
-echo "• Premium Vmess Account •" >> "$LOG_FILE"
-echo "◇━━━━━━━━━━━━━━━━━◇" >> "$LOG_FILE"
-echo "User         : ${user}" >> "$LOG_FILE"
-echo "Domain       : ${domain}" >> "$LOG_FILE"
-echo "UUID         : ${uuid}" >> "$LOG_FILE"
-echo "Expired Until  : $exp" >> "$LOG_FILE"
-echo "◇━━━━━━━━━━━━━━━━━◇" >> "$LOG_FILE"
