@@ -84,4 +84,10 @@ Save Link Account: http://$domen:89/ssh-$Login.txt
 "
 # Cetak output ke stdout agar bisa ditangkap oleh Python
 echo "$TEXT"
-```
+
+echo " Port OpenSSH : 22"
+echo " Port Dropbear: 109, 143"
+echo " Port WS      : 80, 8080"
+echo " Port SSL/TLS : 443"
+
+exit 0
