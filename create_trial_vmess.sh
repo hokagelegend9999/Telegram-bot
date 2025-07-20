@@ -1,71 +1,78 @@
 #!/bin/bash
 
 # ==================================================================
-#         SKRIP FINAL v10.0 - TRIAL VMESS (Replikasi Sempurna)
+#         TRIAL VMESS Creator - Telegram Friendly Format
 # ==================================================================
 
 TIMER_MINUTE="60"
 TRIAL_LOG_FILE="/etc/hokage-bot/trial_users.log"
 
-# Ambil variabel server
-domain=$(cat /etc/xray/domain); ISP=$(cat /etc/xray/isp); CITY=$(cat /etc/xray/city)
-uuid=$(cat /proc/sys/kernel/random/uuid); exp=$(date -d "0 days" +"%Y-%m-%d")
+# Server variables
+domain=$(cat /etc/xray/domain)
+ISP=$(cat /etc/xray/isp)
+CITY=$(cat /etc/xray/city)
+uuid=$(cat /proc/sys/kernel/random/uuid)
+exp=$(date -d "0 days" +"%Y-%m-%d")
 CONFIG_FILE="/etc/xray/config.json"
 
-# Buat username acak
+# Generate random username
 user="trial-$(tr -dc A-Z0-9 </dev/urandom | head -c 5)"
 
-# Cek user agar tidak duplikat
+# Check for duplicate
 if grep -q "\"$user\"" "$CONFIG_FILE"; then
-    echo "Error: Gagal membuat username unik, silakan coba lagi."
+    echo "❌ Error: Gagal membuat username unik, silakan coba lagi."
     exit 1
 fi
 
-# ==================================================================
-#    Inti Perbaikan Final: Perintah 'sed' sekarang 100% identik.
-# ==================================================================
-# Tambahkan user ke Vmess WS
+# Add to config
 sed -i '/#vmess$/a\#vm '"$user $exp"'\
-},{"id": "'""$uuid""'","alterId": "0","email": "'""$user""'"' "$CONFIG_FILE"
-
-# Tambahkan user ke Vmess gRPC
+},{"id": "'"$uuid"'","alterId": "0","email": "'"$user"'"' "$CONFIG_FILE"
 sed -i '/#vmessgrpc$/a\#vmg '"$user $exp"'\
-},{"id": "'""$uuid""'","alterId": "0","email": "'""$user""'"' "$CONFIG_FILE"
+},{"id": "'"$uuid"'","alterId": "0","email": "'"$user"'"' "$CONFIG_FILE"
 
-
-# Mencatat user trial untuk dihapus oleh cron job
+# Log trial user
 mkdir -p /etc/hokage-bot
 EXP_TIME=$(date +%s -d "$TIMER_MINUTE minutes")
 echo "${EXP_TIME}:${user}:vmess" >> "$TRIAL_LOG_FILE"
 
-# Buat link Vmess
-vmesslink1="vmess://$(echo -n "{\"v\":\"2\",\"ps\":\"${user}\",\"add\":\"${domain}\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"ws\",\"path\":\"/vmess\",\"type\":\"none\",\"host\":\"${domain}\",\"tls\":\"tls\"}" | base64 -w 0)"
-vmesslink2="vmess://$(echo -n "{\"v\":\"2\",\"ps\":\"${user}\",\"add\":\"${domain}\",\"port\":\"80\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"ws\",\"path\":\"/vmess\",\"type\":\"none\",\"host\":\"${domain}\",\"tls\":\"none\"}" | base64 -w 0)"
-vmesslink3="vmess://$(echo -n "{\"v\":\"2\",\"ps\":\"${user}\",\"add\":\"${domain}\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"grpc\",\"path\":\"vmess-grpc\",\"type\":\"none\",\"host\":\"${domain}\",\"tls\":\"tls\"}" | base64 -w 0)"
+# Generate links
+vmess_ws_tls_json="{\"v\":\"2\",\"ps\":\"${user} TLS\",\"add\":\"${domain}\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"ws\",\"path\":\"/vmess\",\"type\":\"none\",\"host\":\"${domain}\",\"tls\":\"tls\"}"
+vmess_ws_nontls_json="{\"v\":\"2\",\"ps\":\"${user} NTLS\",\"add\":\"${domain}\",\"port\":\"80\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"ws\",\"path\":\"/vmess\",\"type\":\"none\",\"host\":\"${domain}\",\"tls\":\"none\"}"
+vmess_grpc_json="{\"v\":\"2\",\"ps\":\"${user} gRPC\",\"add\":\"${domain}\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"grpc\",\"path\":\"vmess-grpc\",\"type\":\"none\",\"host\":\"${domain}\",\"tls\":\"tls\"}"
 
-# Restart service xray
+vmesslink1="vmess://$(echo -n "$vmess_ws_tls_json" | base64 -w 0)"
+vmesslink2="vmess://$(echo -n "$vmess_ws_nontls_json" | base64 -w 0)"
+vmesslink3="vmess://$(echo -n "$vmess_grpc_json" | base64 -w 0)"
+
+# Restart service
 systemctl restart xray > /dev/null 2>&1
 
-# Hasilkan output lengkap untuk Telegram
+# Beautiful Format for Telegram (without HTML)
 TEXT="
-◇━━━━━━━━━━━━━━━━━◇
-<b>Trial Premium Vmess Account</b>
-◇━━━━━━━━━━━━━━━━━◇
-<b>User</b>          : ${user}
-<b>Domain</b>        : <code>${domain}</code>
-<b>Expired On</b>      : $TIMER_MINUTE Minutes
-<b>ISP</b>           : ${ISP}
-<b>CITY</b>          : ${CITY}
-<b>UUID</b>          : <code>${uuid}</code>
-◇━━━━━━━━━━━━━━━━━◇
-<b>Link TLS</b>      :
-<code>${vmesslink1}</code>
-◇━━━━━━━━━━━━━━━━━◇
-<b>Link NTLS</b>     :
-<code>${vmesslink2}</code>
-◇━━━━━━━━━━━━━━━━━◇
-<b>Link GRPC</b>     :
-<code>${vmesslink3}</code>
-◇━━━━━━━━━━━━━━━━━◇
+═══════[ TRIAL VMESS ]═══════
+🆔 Username: $user
+🌐 Domain: $domain
+⏳ Expired: $TIMER_MINUTE Minutes
+═══════════════════════════════
+📡 Server Info:
+├─ 🏢 ISP: $ISP
+└─ 🌆 City: $CITY
+🔒 Security:
+├─ 🔑 UUID: $uuid
+└─ 🛡️ AlterID: 0
+═══════════════════════════════
+🔗 Connection Links:
+┌─ 🌐 TLS (443):
+│  $vmesslink1
+│
+├─ 🌍 NTLS (80):
+│  $vmesslink2
+│
+└─ 🚀 gRPC (443):
+   $vmesslink3
+═══════════════════════════════
+⚠️ Trial akan expired setelah $TIMER_MINUTE menit!
 "
+
+# Output
 echo "$TEXT"
