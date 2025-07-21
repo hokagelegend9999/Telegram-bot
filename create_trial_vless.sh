@@ -1,21 +1,25 @@
 #!/bin/bash
 
 # ==================================================================
-#         SKRIP FINAL - VLESS TRIAL (Replikasi Sempurna)
+#         SKRIP FINAL v9.1 - VLESS TRIAL (Replikasi Sempurna)
 # ==================================================================
 
-# Validasi argumen (Asumsi hanya butuh user, durasi trial biasanya hardcoded)
-# Jika script trial Anda butuh argumen lain, sesuaikan di sini.
-if [ "$#" -ne 1 ]; then # Asumsi hanya 1 argumen: username
-    echo "❌ Error: Butuh 1 argumen: <user>"
-    exit 1
-fi
+# --- PENTING: Hapus validasi argumen lama, dan buat username otomatis ---
+# if [ "$#" -ne 1 ]; then
+#     echo "❌ Error: Butuh 1 argumen: <user>"
+#     exit 1
+# fi
+# user="$1" # Hapus baris ini karena user akan digenerate
 
-# Ambil parameter
-user="$1"
-masaaktif="1" # Trial biasanya 1 hari, atau sesuaikan jika script Anda mengambil durasi
-iplim="1"     # Trial biasanya 1 IP, atau sesuaikan
-Quota="0.5"   # Trial biasanya 0.5 GB, atau sesuaikan (gunakan titik untuk desimal)
+# Generate username otomatis (misalnya: trial_timestamp atau random string)
+user="trial_vls_$(date +%s%N | cut -b8-13)" # Contoh: trial_vls_timestamp
+# Atau pakai cara random string yang lebih unik seperti di Trojan:
+# user="trial-$(tr -dc A-Z0-9 </dev/urandom | head -c 5)"
+
+# Parameter trial (biasanya hardcode di script trial)
+masaaktif="1" # Trial biasanya 1 hari
+iplim="1"     # Trial biasanya 1 IP
+Quota="0.5"   # Trial biasanya 0.5 GB (gunakan titik untuk desimal)
 
 # Ambil variabel server
 domain=$(cat /etc/xray/domain); ISP=$(cat /etc/xray/isp); CITY=$(cat /etc/xray/city)
@@ -42,7 +46,7 @@ sed -i '/#vlessgrpc$/a\#vlg '"$user $exp"'\
 
 # Atur variabel untuk output
 if [ "$iplim" = "0" ]; then iplim_val="Unlimited"; else iplim_val="$iplim"; fi
-if [ "$Quota" = "0" ]; then QuotaGb="Unlimited"; else QuotaGb="$Quota"; fi # QuotaGb tetap string
+if [ "$Quota" = "0" ]; then QuotaGb="Unlimited"; else QuotaGb="$Quota"; fi
 
 # Buat link Vless (linknya tetap valid, hanya tampilannya yang plain text)
 vlesslink1="vless://${uuid}@${domain}:443?path=/vless&security=tls&encryption=none&host=${domain}&type=ws&sni=${domain}#${user}"
@@ -52,7 +56,7 @@ vlesslink3="vless://${uuid}@${domain}:443?mode=gun&security=tls&encryption=none&
 # Restart service xray
 systemctl restart xray > /dev/null 2>&1
 
-# Hasilkan output lengkap untuk Telegram (Plain Text dengan Emoji)
+# Hasilkan output lengkap untuk Telegram (Plain Text dengan Emoji, sama seperti VMESS)
 TEXT="
 ◇━━━━━━━━━━━━━━━━━◇
 🎁 Vless Trial Account 🎁
@@ -86,7 +90,7 @@ ${vlesslink3}
 "
 echo "$TEXT"
 
-# Membuat file log untuk user (tidak perlu HTML escaping di sini karena ini file log)
+# Membuat file log untuk user
 LOG_DIR="/etc/vless/akun"
 LOG_FILE="${LOG_DIR}/log-create-${user}.log"
 mkdir -p "$LOG_DIR"
