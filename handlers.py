@@ -14,7 +14,6 @@ from telegram.ext import (
 import keyboards
 import config
 import database
-# import html # Dihapus/dikomentari karena tidak digunakan lagi untuk plain text
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +27,9 @@ TROJAN_GET_USER, TROJAN_GET_DURATION, TROJAN_GET_IP_LIMIT, TROJAN_GET_QUOTA = ma
 RENEW_GET_USERNAME, RENEW_SELECT_TYPE, RENEW_CONFIRMATION = map(chr, range(15, 18))
 
 TRIAL_CREATE_SSH, TRIAL_CREATE_VMESS, TRIAL_CREATE_VLESS, TRIAL_CREATE_TROJAN = map(chr, range(18, 22))
+
+# State baru untuk alur Delete
+DELETE_GET_USERNAME, DELETE_CONFIRMATION = map(chr, range(22, 24))
 # --- Akhir Definisi State ---
 
 
@@ -205,8 +207,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             )
         return ROUTE
 
-    # --- Fitur List Akun VLESS ---
-    if command == "vless_list": # <--- Ini adalah blok yang harus terpicu
+    if command == "vless_list": # Ini adalah blok yang harus terpicu
         await query.edit_message_text("⏳ Mengambil daftar akun VLESS Anda...")
         try:
             account_list_text = await database.get_vless_account_list(user_id) 
@@ -222,6 +223,20 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 reply_markup=keyboards.get_vless_menu_keyboard()
             )
         return ROUTE
+
+    # --- Memulai Alur Delete Akun (BARU) ---
+    # Diarahkan dari tombol "🗑️ Hapus Akun" di SSH/VMESS/VLESS/TROJAN menu
+    delete_starter_map = {
+        "ssh_delete": "SSH",
+        "vmess_delete": "VMESS",
+        "vless_delete": "VLESS",
+        "trojan_delete": "TROJAN"
+    }
+    if command in delete_starter_map:
+        account_type = delete_starter_map[command]
+        context.user_data['delete_type'] = account_type # Simpan jenis akun yang akan dihapus
+        await query.edit_message_text(f"Silakan masukkan username akun {account_type} yang ingin dihapus:")
+        return DELETE_GET_USERNAME # Transisi ke state untuk mendapatkan username
 
     # --- Script Execution Commands (Selain Trial yang kini punya alur sendiri) ---
     script_map = {
