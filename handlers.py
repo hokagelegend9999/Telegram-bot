@@ -14,16 +14,20 @@ from telegram.ext import (
 import keyboards
 import config
 import database
+import html
 
 logger = logging.getLogger(__name__)
 
 # --- Definisi State (PASTIKAN UNIK dan TIDAK TUMPANG TINDIH) ---
-ROUTE, SSH_GET_USERNAME, SSH_GET_PASSWORD, SSH_GET_DURATION, SSH_GET_IP_LIMIT = map(chr, range(5))
+ROUTE = chr(0)
+SSH_GET_USERNAME, SSH_GET_PASSWORD, SSH_GET_DURATION, SSH_GET_IP_LIMIT = map(chr, range(1, 5))
 VMESS_GET_USER, VMESS_GET_DURATION = map(chr, range(5, 7))
 VLESS_GET_USER, VLESS_GET_DURATION = map(chr, range(7, 9))
-TROJAN_GET_USER, TROJAN_GET_DURATION = map(chr, range(9, 11))
+# TROJAN sekarang butuh 4 state (user, duration, ip_limit, quota)
+TROJAN_GET_USER, TROJAN_GET_DURATION, TROJAN_GET_IP_LIMIT, TROJAN_GET_QUOTA = map(chr, range(9, 13))
 
-RENEW_GET_USERNAME, RENEW_SELECT_TYPE, RENEW_CONFIRMATION = map(chr, range(11, 14))
+# RENEW sekarang dimulai dari 13 agar tidak tumpang tindih
+RENEW_GET_USERNAME, RENEW_SELECT_TYPE, RENEW_CONFIRMATION = map(chr, range(13, 16))
 # --- Akhir Definisi State ---
 
 
@@ -32,6 +36,7 @@ def is_admin(update: Update) -> bool:
     return update.effective_user.id == config.ADMIN_TELEGRAM_ID
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Mengirim pesan selamat datang dan menu utama."""
     user = update.effective_user
     database.add_user_if_not_exists(user.id, user.first_name, user.username) 
     await update.message.reply_text(
@@ -42,6 +47,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ROUTE 
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Menampilkan menu utama."""
     await update.message.reply_text(
         "Please select from the menu below:",
         reply_markup=keyboards.get_main_menu_keyboard()
@@ -60,21 +66,21 @@ async def handle_script_error(update: Update, context: ContextTypes.DEFAULT_TYPE
         msg = error.stdout.strip() or error.stderr.strip() or "Script failed without error output."
 
     target_message = update.callback_query.message if update.callback_query else update.message
-
+    
     if target_message:
         if update.callback_query:
-            await target_message.edit_text(
-                f"❌ <b>Failed:</b>\n<pre>{msg}</pre>",
+            await target_message.edit_text( 
+                f"❌ <b>Failed:</b>\n<pre>{html.escape(msg)}</pre>",
                 parse_mode='HTML',
                 reply_markup=keyboards.get_back_to_menu_keyboard()
             )
         else:
             await target_message.reply_text(
-                f"❌ <b>Failed:</b>\n<pre>{msg}</pre>",
+                f"❌ <b>Failed:</b>\n<pre>{html.escape(msg)}</pre>",
                 parse_mode='HTML',
                 reply_markup=keyboards.get_main_menu_keyboard()
             )
-
+    
     logger.error(f"Script execution error: {msg}", exc_info=True)
     return ROUTE
 
@@ -93,10 +99,10 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             reply_markup=keyboards.get_main_menu_keyboard()
         )
         return ROUTE
-
+    
     if command in ["menu_ssh", "menu_vmess", "menu_vless", "menu_trojan", "menu_tools"]:
         menu_name = command.split('_')[1].upper()
-
+        
         keyboard_to_send = keyboards.get_back_to_menu_keyboard()
 
         if menu_name == "SSH":
@@ -104,16 +110,16 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             logger.info(f"DEBUG: SSH Menu Keyboard being sent: {keyboard_to_send.to_dict()}")
         elif menu_name == "VMESS":
             keyboard_to_send = keyboards.get_vmess_menu_keyboard()
-            logger.info(f"DEBUG: VMESS Menu Keyboard being sent: {keyboard_to_send.to_dict()}") # <-- Debug untuk VMESS
+            logger.info(f"DEBUG: VMESS Menu Keyboard being sent: {keyboard_to_send.to_dict()}")
         elif menu_name == "VLESS":
             keyboard_to_send = keyboards.get_vless_menu_keyboard()
-            logger.info(f"DEBUG: VLESS Menu Keyboard being sent: {keyboard_to_send.to_dict()}") # <-- Debug untuk VLESS
+            logger.info(f"DEBUG: VLESS Menu Keyboard being sent: {keyboard_to_send.to_dict()}")
         elif menu_name == "TROJAN":
             keyboard_to_send = keyboards.get_trojan_menu_keyboard()
-            logger.info(f"DEBUG: TROJAN Menu Keyboard being sent: {keyboard_to_send.to_dict()}") # <-- Debug untuk TROJAN
+            logger.info(f"DEBUG: TROJAN Menu Keyboard being sent: {keyboard_to_send.to_dict()}")
         elif menu_name == "TOOLS":
             keyboard_to_send = keyboards.get_tools_menu_keyboard()
-            logger.info(f"DEBUG: TOOLS Menu Keyboard being sent: {keyboard_to_send.to_dict()}") # <-- Debug untuk TOOLS
+            logger.info(f"DEBUG: TOOLS Menu Keyboard being sent: {keyboard_to_send.to_dict()}")
 
         await query.edit_message_text(
             f"<b>{menu_name} PANEL MENU</b>",
@@ -130,8 +136,9 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         "trojan_add": ("Trojan Username:", TROJAN_GET_USER)
     }
     if command in conv_starters:
-        text, state = conv_starters[command]
-        await query.edit_message_text(f"<b>{text}</b>", parse_mode='HTML')
+        raw_text, state = conv_starters[command]
+        escaped_text = html.escape(raw_text)
+        await query.edit_message_text(f"<b>{escaped_text}</b>", parse_mode='HTML')
         return state
 
     # Alur Perpanjangan SSH
@@ -144,36 +151,37 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text("⏳ Mengambil daftar akun SSH Anda...")
         try:
             account_list_text = await database.get_ssh_account_list(user_id)
-
+            
             await query.edit_message_text(
-                f"<b>📋 Daftar Akun SSH Anda:</b>\n\n<pre>{account_list_text}</pre>",
+                f"<b>📋 Daftar Akun SSH Anda:</b>\n\n<pre>{html.escape(account_list_text)}</pre>",
                 parse_mode='HTML',
                 reply_markup=keyboards.get_ssh_menu_keyboard() 
             )
         except Exception as e:
             logger.error(f"Error fetching SSH account list for user {user_id}: {e}", exc_info=True)
             await query.edit_message_text(
-                "❌ Gagal mengambil daftar akun SSH. Mohon coba lagi nanti.",
+                f"❌ Gagal mengambil daftar akun SSH. Mohon coba lagi nanti.\n<pre>{html.escape(str(e))}</pre>",
+                parse_mode='HTML', 
                 reply_markup=keyboards.get_ssh_menu_keyboard()
             )
         return ROUTE
-
-    # --- Fitur List Akun VMESS (BARU) ---
+    
+    # --- Fitur List Akun VMESS ---
     if command == "vmess_list":
         await query.edit_message_text("⏳ Mengambil daftar akun VMESS Anda...")
         try:
-            # Panggil fungsi baru di database.py untuk VMESS
             account_list_text = await database.get_vmess_account_list(user_id) 
-
+            
             await query.edit_message_text(
-                f"<b>📋 Daftar Akun VMESS Anda:</b>\n\n<pre>{account_list_text}</pre>",
+                f"<b>📋 Daftar Akun VMESS Anda:</b>\n\n<pre>{html.escape(account_list_text)}</pre>",
                 parse_mode='HTML',
                 reply_markup=keyboards.get_vmess_menu_keyboard() 
             )
         except Exception as e:
             logger.error(f"Error fetching VMESS account list for user {user_id}: {e}", exc_info=True)
             await query.edit_message_text(
-                "❌ Gagal mengambil daftar akun VMESS. Mohon coba lagi nanti.",
+                f"❌ Gagal mengambil daftar akun VMESS. Mohon coba lagi nanti.\n<pre>{html.escape(str(e))}</pre>",
+                parse_mode='HTML', 
                 reply_markup=keyboards.get_vmess_menu_keyboard()
             )
         return ROUTE
@@ -181,7 +189,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # --- Script Execution Commands ---
     script_map = {
         "ssh_trial": "create_trial_ssh.sh",
-        "vmess_trial": "create_trial_vmess.sh", # VMESS Trial
+        "vmess_trial": "create_trial_vmess.sh", 
         "vless_trial": "create_trial_vless.sh", 
         "trojan_trial": "create_trial_trojan.sh",
         "menu_restart": "restart_for_bot.sh",
@@ -198,12 +206,12 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if command in ["confirm_restore", "menu_backup", "reboot_server"]:
             wait_message = f"⚙️ *Starting {command.replace('menu_', '')} process...*\n\nThis may take several minutes."
             timeout = 300
-
+        
         if command == "reboot_server":
             await query.edit_message_text("🚨 **Server akan me-reboot dalam beberapa detik!**\nBot akan offline sementara.", parse_mode='Markdown')
             subprocess.Popen(['sudo', f'/opt/hokage-bot/{script_map[command]}']) 
             return ConversationHandler.END 
-
+            
         await query.edit_message_text(wait_message, parse_mode='Markdown')
         try:
             p = subprocess.run(
@@ -213,8 +221,8 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                 check=True,
                 timeout=timeout
             )
-            await query.edit_message_text(
-                f"✅ Result:\n<pre>{p.stdout}</pre>",
+            await query.edit_message_text( 
+                f"✅ Result:\n<pre>{html.escape(p.stdout)}</pre>",
                 parse_mode='HTML',
                 reply_markup=keyboards.get_back_to_menu_keyboard()
             )
@@ -298,7 +306,7 @@ async def renew_confirm_proceed(update: Update, context: ContextTypes.DEFAULT_TY
         script_to_run = "renew_vpn.sh" 
     elif renew_type == "renew_all":
         script_to_run = "renew_all.sh" 
-
+        
     if script_to_run:
         try:
             p = subprocess.run(
@@ -308,8 +316,8 @@ async def renew_confirm_proceed(update: Update, context: ContextTypes.DEFAULT_TY
                 check=True,
                 timeout=60 
             )
-            await query.message.reply_text(
-                f"✅ Perpanjangan akun '{username}' untuk {renew_type.replace('renew_', '').upper()} berhasil!\n<pre>{p.stdout}</pre>",
+            await query.message.reply_text( 
+                f"✅ Perpanjangan akun '{username}' untuk {renew_type.replace('renew_', '').upper()} berhasil!\n<pre>{html.escape(p.stdout)}</pre>",
                 parse_mode='HTML'
             )
         except Exception as e:
@@ -373,8 +381,8 @@ async def ssh_get_ip_limit_and_create(update: Update, context: ContextTypes.DEFA
             check=True,
             timeout=30
         )
-        await update.message.reply_text(
-            p.stdout,
+        await update.message.reply_text( 
+            f"✅ Result:\n<pre>{html.escape(p.stdout)}</pre>",
             parse_mode='HTML',
             reply_markup=keyboards.get_back_to_menu_keyboard()
         )
@@ -403,8 +411,8 @@ async def vmess_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE)
             check=True,
             timeout=30
         )
-        await update.message.reply_text(
-            p.stdout,
+        await update.message.reply_text( 
+            f"✅ Result:\n<pre>{html.escape(p.stdout)}</pre>",
             parse_mode='HTML',
             reply_markup=keyboards.get_back_to_menu_keyboard()
         )
@@ -432,8 +440,8 @@ async def vless_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE)
             check=True,
             timeout=30
         )
-        await update.message.reply_text(
-            p.stdout,
+        await update.message.reply_text( 
+            f"✅ Result:\n<pre>{html.escape(p.stdout)}</pre>",
             parse_mode='HTML',
             reply_markup=keyboards.get_back_to_menu_keyboard()
         )
@@ -451,17 +459,35 @@ async def trojan_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def trojan_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['duration'] = update.message.text
     ud = context.user_data
-    await update.message.reply_text("⏳ Creating TROJAN account...")
+    await update.message.reply_text("Masukkan batas IP untuk akun TROJAN:") # BARU: Minta IP Limit
+    return TROJAN_GET_IP_LIMIT # BARU: Transisi ke state IP Limit
+
+async def trojan_get_ip_limit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # BARU
     try:
+        ip_limit = int(update.message.text)
+        context.user_data['ip_limit'] = ip_limit
+        await update.message.reply_text("Masukkan kuota GB untuk akun TROJAN:") # BARU: Minta Kuota GB
+        return TROJAN_GET_QUOTA # BARU: Transisi ke state Kuota GB
+    except ValueError:
+        await update.message.reply_text("Batas IP harus berupa angka. Silakan masukkan batas IP yang valid.")
+        return TROJAN_GET_IP_LIMIT # Tetap di state ini jika input salah
+
+async def trojan_get_quota_and_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # BARU
+    try:
+        quota_gb = int(update.message.text)
+        context.user_data['quota_gb'] = quota_gb
+        await update.message.reply_text("⏳ Creating TROJAN account...")
+
+        ud = context.user_data
         p = subprocess.run(
-            ['sudo', '/opt/hokage-bot/create_trojan_user.sh', ud['user'], ud['duration']],
+            ['sudo', '/opt/hokage-bot/create_trojan_user.sh', ud['user'], str(ud['duration']), str(ud['ip_limit']), str(ud['quota_gb'])], # BARU: Kirim semua 4 argumen
             capture_output=True,
             text=True,
             check=True,
             timeout=30
         )
-        await update.message.reply_text(
-            p.stdout,
+        await update.message.reply_text( 
+            f"✅ Result:\n<pre>{html.escape(p.stdout)}</pre>",
             parse_mode='HTML',
             reply_markup=keyboards.get_back_to_menu_keyboard()
         )
