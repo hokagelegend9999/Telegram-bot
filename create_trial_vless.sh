@@ -1,39 +1,50 @@
 #!/bin/bash
-set -e # Pastikan skrip berhenti jika ada error
 
 # ==================================================================
-#         SKRIP FINAL v11.1 - TRIAL VLESS (Output Stabil)
+#         SKRIP FINAL - VLESS TRIAL (Replikasi Sempurna)
 # ==================================================================
 
-TIMER_MINUTE="60"
-TRIAL_LOG_FILE="/etc/hokage-bot/trial_users.log"
-
-# Ambil variabel server
-domain=$(cat /etc/xray/domain); ISP=$(cat /etc/xray/isp); CITY=$(cat /etc/xray/city)
-uuid=$(cat /proc/sys/kernel/random/uuid); exp=$(date -d "0 days" +"%Y-%m-%d")
-CONFIG_FILE="/etc/xray/config.json"
-
-# Buat username acak
-user="trial-$(tr -dc A-Z0-9 </dev/urandom | head -c 5)"
-
-# Cek user agar tidak duplikat
-if grep -q -w "$user" "$CONFIG_FILE"; then
-    echo "Error: Gagal membuat username unik, silakan coba lagi."
+# Validasi argumen (Asumsi hanya butuh user, durasi trial biasanya hardcoded)
+# Jika script trial Anda butuh argumen lain, sesuaikan di sini.
+if [ "$#" -ne 1 ]; then # Asumsi hanya 1 argumen: username
+    echo "❌ Error: Butuh 1 argumen: <user>"
     exit 1
 fi
 
-# Perintah 'sed' yang sudah 100% benar
+# Ambil parameter
+user="$1"
+masaaktif="1" # Trial biasanya 1 hari, atau sesuaikan jika script Anda mengambil durasi
+iplim="1"     # Trial biasanya 1 IP, atau sesuaikan
+Quota="0.5"   # Trial biasanya 0.5 GB, atau sesuaikan (gunakan titik untuk desimal)
+
+# Ambil variabel server
+domain=$(cat /etc/xray/domain); ISP=$(cat /etc/xray/isp); CITY=$(cat /etc/xray/city)
+uuid=$(cat /proc/sys/kernel/random/uuid); exp=$(date -d "$masaaktif days" +"%Y-%m-%d")
+CONFIG_FILE="/etc/xray/config.json"
+
+# Cek user
+if grep -q "\"$user\"" "$CONFIG_FILE"; then
+    echo "❌ Error: Username '$user' sudah ada."
+    exit 1
+fi
+
+# ==================================================================
+#   Inti Perbaikan: Perintah 'sed' sekarang 100% sama dengan skrip asli Anda.
+# ==================================================================
+# Tambahkan user ke Vless WS
 sed -i '/#vless$/a\#vl '"$user $exp $uuid"'\
-},{"id": "'""$uuid""'","email": "'""$user""'"' "$CONFIG_FILE"
+},{"id": "'""$uuid""'","email": "'""$user""'"}' "$CONFIG_FILE"
+
+# Tambahkan user ke Vless gRPC
 sed -i '/#vlessgrpc$/a\#vlg '"$user $exp"'\
-},{"id": "'""$uuid""'","email": "'""$user""'"' "$CONFIG_FILE"
+},{"id": "'""$uuid""'","email": "'""$user""'"}' "$CONFIG_FILE"
 
-# Mencatat user trial untuk dihapus oleh cron job
-mkdir -p /etc/hokage-bot
-EXP_TIME=$(date +%s -d "$TIMER_MINUTE minutes")
-echo "${EXP_TIME}:${user}:vless" >> "$TRIAL_LOG_FILE"
 
-# Buat link Vless
+# Atur variabel untuk output
+if [ "$iplim" = "0" ]; then iplim_val="Unlimited"; else iplim_val="$iplim"; fi
+if [ "$Quota" = "0" ]; then QuotaGb="Unlimited"; else QuotaGb="$Quota"; fi # QuotaGb tetap string
+
+# Buat link Vless (linknya tetap valid, hanya tampilannya yang plain text)
 vlesslink1="vless://${uuid}@${domain}:443?path=/vless&security=tls&encryption=none&host=${domain}&type=ws&sni=${domain}#${user}"
 vlesslink2="vless://${uuid}@${domain}:80?path=/vless&security=none&encryption=none&host=${domain}&type=ws#${user}"
 vlesslink3="vless://${uuid}@${domain}:443?mode=gun&security=tls&encryption=none&type=grpc&serviceName=vless-grpc&sni=${domain}#${user}"
@@ -41,35 +52,56 @@ vlesslink3="vless://${uuid}@${domain}:443?mode=gun&security=tls&encryption=none&
 # Restart service xray
 systemctl restart xray > /dev/null 2>&1
 
-# ==================================================================
-#    Inti Perbaikan: Menggunakan Here Document (cat <<EOF) untuk output
-# ==================================================================
-TEXT=$(cat <<EOF
+# Hasilkan output lengkap untuk Telegram (Plain Text dengan Emoji)
+TEXT="
 ◇━━━━━━━━━━━━━━━━━◇
-<b>Trial Premium Vless Account</b>
+🎁 Vless Trial Account 🎁
 ◇━━━━━━━━━━━━━━━━━◇
-<b>User</b>          : ${user}
-<b>Domain</b>        : <code>${domain}</code>
-<b>Expired On</b>      : ${TIMER_MINUTE} Minutes
-<b>ISP</b>           : ${ISP}
-<b>CITY</b>          : ${CITY}
-<b>UUID</b>          : <code>${uuid}</code>
-<b>Path</b>          : <code>/vless</code>
-<b>ServiceName</b>   : <code>vless-grpc</code>
+👤 User        : ${user}
+🌐 Domain      : ${domain}
+🔒 Login Limit : ${iplim_val} IP
+📊 Quota Limit : ${QuotaGb} GB
+📡 ISP         : ${ISP}
+🏙️ CITY        : ${CITY}
+🔌 Port TLS    : 443
+🔌 Port NTLS   : 80, 8080
+🔌 Port GRPC   : 443
+🔑 UUID        : ${uuid}
+🔗 Encryption  : none
+🔗 Network     : WS or gRPC
+➡️ Path        : /vless
+➡️ ServiceName : vless-grpc
 ◇━━━━━━━━━━━━━━━━━◇
-<b>Link TLS</b>      :
-<code>${vlesslink1}</code>
+🔗 Link TLS    :
+${vlesslink1}
 ◇━━━━━━━━━━━━━━━━━◇
-<b>Link NTLS</b>     :
-<code>${vlesslink2}</code>
+🔗 Link NTLS   :
+${vlesslink2}
 ◇━━━━━━━━━━━━━━━━━◇
-<b>Link GRPC</b>     :
-<code>${vlesslink3}</code>
+🔗 Link GRPC   :
+${vlesslink3}
 ◇━━━━━━━━━━━━━━━━━◇
-EOF
-)
+📅 Expired Until : $exp
+◇━━━━━━━━━━━━━━━━━◇
+"
 echo "$TEXT"
 
-# Membuat file log untuk user
+# Membuat file log untuk user (tidak perlu HTML escaping di sini karena ini file log)
 LOG_DIR="/etc/vless/akun"
-# ... (sisa kode logging tidak perlu diubah, biarkan seperti di jawaban sebelumnya) ...
+LOG_FILE="${LOG_DIR}/log-create-${user}.log"
+mkdir -p "$LOG_DIR"
+echo "◇━━━━━━━━━━━━━━━━━◇" > "$LOG_FILE"
+echo "• Vless Trial Account •" >> "$LOG_FILE"
+echo "◇━━━━━━━━━━━━━━━━━◇" >> "$LOG_FILE"
+echo "User         : ${user}" >> "$LOG_FILE"
+echo "Domain       : ${domain}" >> "$LOG_FILE"
+echo "UUID         : ${uuid}" >> "$LOG_FILE"
+echo "Expired Until : $exp" >> "$LOG_FILE"
+echo "Login Limit  : ${iplim_val}" >> "$LOG_FILE"
+echo "Quota Limit  : ${QuotaGb}" >> "$LOG_FILE"
+echo "Link TLS     : ${vlesslink1}" >> "$LOG_FILE"
+echo "Link NTLS    : ${vlesslink2}" >> "$LOG_FILE"
+echo "Link GRPC    : ${vlesslink3}" >> "$LOG_FILE"
+echo "◇━━━━━━━━━━━━━━━━━◇" >> "$LOG_FILE"
+
+exit 0
