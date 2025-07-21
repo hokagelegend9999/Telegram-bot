@@ -11,6 +11,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler
 )
+# Pastikan import ini benar (tanpa titik karena menggunakan import absolut)
 import keyboards
 import config
 import database
@@ -35,14 +36,13 @@ def is_admin(update: Update) -> bool:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Mengirim pesan selamat datang dan menu utama."""
     user = update.effective_user
-    # Pastikan database.add_user_if_not_exists sudah didefinisikan di database.py
     database.add_user_if_not_exists(user.id, user.first_name, user.username) 
     await update.message.reply_text(
         "🤖 Welcome to SSH/VPN Management Bot!\n\n"
         "Use /menu to access all features.",
         reply_markup=keyboards.get_main_menu_keyboard()
     )
-    return ROUTE # Memulai percakapan di state ROUTE
+    return ROUTE 
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Menampilkan menu utama."""
@@ -50,7 +50,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "Please select from the menu below:",
         reply_markup=keyboards.get_main_menu_keyboard()
     )
-    return ROUTE # Kembali ke state ROUTE
+    return ROUTE
 
 async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not is_admin(update):
@@ -64,25 +64,24 @@ async def handle_script_error(update: Update, context: ContextTypes.DEFAULT_TYPE
     if isinstance(error, subprocess.CalledProcessError):
         msg = error.stdout.strip() or error.stderr.strip() or "Script failed without error output."
 
-    # Tentukan pesan target berdasarkan apakah itu callback query atau pesan biasa
     target_message = update.callback_query.message if update.callback_query else update.message
     
     if target_message:
-        if update.callback_query: # Jika berasal dari callback query, coba edit pesan yang sama
+        if update.callback_query:
             await target_message.edit_text( # Ganti edit_message_text dengan edit_text untuk Inline Buttons
                 f"❌ <b>Failed:</b>\n<pre>{msg}</pre>",
                 parse_mode='HTML',
                 reply_markup=keyboards.get_back_to_menu_keyboard()
             )
-        else: # Jika dari pesan biasa (MessageHandler), balas dengan pesan baru
+        else:
             await target_message.reply_text(
                 f"❌ <b>Failed:</b>\n<pre>{msg}</pre>",
                 parse_mode='HTML',
-                reply_markup=keyboards.get_main_menu_keyboard() # Atau get_back_to_menu_keyboard()
+                reply_markup=keyboards.get_main_menu_keyboard()
             )
     
     logger.error(f"Script execution error: {msg}", exc_info=True)
-    return ROUTE # Biasanya kembali ke ROUTE atau ConversationHandler.END
+    return ROUTE
 
 # --- Main Handler (route_handler) ---
 async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -105,24 +104,23 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if command in ["menu_ssh", "menu_vmess", "menu_vless", "menu_trojan", "menu_tools"]:
         menu_name = command.split('_')[1].upper()
         
-        # Inisialisasi keyboard default
         keyboard_to_send = keyboards.get_back_to_menu_keyboard() # Default fallback
 
         if menu_name == "SSH":
             keyboard_to_send = keyboards.get_ssh_menu_keyboard()
-            # --- DEBUG: Log isi keyboard yang akan dikirim ---
             logger.info(f"DEBUG: SSH Menu Keyboard being sent: {keyboard_to_send.to_dict()}")
-            # -------------------------------------------------
         elif menu_name == "VMESS":
-            # Jika ada get_vmess_menu_keyboard di keyboards.py, gunakan itu
-            # Contoh: keyboard_to_send = keyboards.get_vmess_menu_keyboard()
-            pass # Placeholder, akan pakai default get_back_to_menu_keyboard()
+            keyboard_to_send = keyboards.get_vmess_menu_keyboard()
+            logger.info(f"DEBUG: VMESS Menu Keyboard being sent: {keyboard_to_send.to_dict()}") # <-- Debug untuk VMESS
         elif menu_name == "VLESS":
-            pass # Placeholder
+            keyboard_to_send = keyboards.get_vless_menu_keyboard()
+            logger.info(f"DEBUG: VLESS Menu Keyboard being sent: {keyboard_to_send.to_dict()}") # <-- Debug untuk VLESS
         elif menu_name == "TROJAN":
-            pass # Placeholder
+            keyboard_to_send = keyboards.get_trojan_menu_keyboard()
+            logger.info(f"DEBUG: TROJAN Menu Keyboard being sent: {keyboard_to_send.to_dict()}") # <-- Debug untuk TROJAN
         elif menu_name == "TOOLS":
-            keyboard_to_send = keyboards.get_tools_menu_keyboard() # Pastikan get_tools_menu_keyboard ada
+            keyboard_to_send = keyboards.get_tools_menu_keyboard()
+            logger.info(f"DEBUG: TOOLS Menu Keyboard being sent: {keyboard_to_send.to_dict()}") # <-- Debug untuk TOOLS
 
         await query.edit_message_text(
             f"<b>{menu_name} PANEL MENU</b>",
@@ -177,7 +175,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         "menu_running": "check_status_for_bot.sh",
         "menu_backup": "backup_for_bot.sh",
         "confirm_restore": "restore_for_bot.sh",
-        "trial_cleanup": "trial_cleanup.sh",
+        "trial_cleanup": "trial_cleanup.sh", 
         "reboot_server": "reboot_server.sh" 
     }
 
@@ -190,7 +188,6 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         
         if command == "reboot_server":
             await query.edit_message_text("🚨 **Server akan me-reboot dalam beberapa detik!**\nBot akan offline sementara.", parse_mode='Markdown')
-            # Gunakan subprocess.Popen agar tidak menunggu script selesai (karena server akan mati)
             subprocess.Popen(['sudo', f'/opt/hokage-bot/{script_map[command]}']) 
             return ConversationHandler.END 
             
