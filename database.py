@@ -19,7 +19,7 @@ def init_db():
     Contoh: koneksi ke SQLite, pembuatan tabel, dll.
     """
     logger.info("Database siap.")
-    
+
     # --- Contoh dummy data untuk pengujian List Akun (HAPUS ATAU GANTI DENGAN LOGIKA DB NYATA) ---
     global _accounts_db # Agar bisa dimodifikasi
     global _users_db
@@ -79,7 +79,7 @@ async def renew_account(username: str, renew_type: str, user_id: int) -> bool:
         # 1. Query database Anda untuk menemukan akun berdasarkan username.
         # 2. Perbarui tanggal kedaluwarsa akun (misalnya, tambah 30 hari).
         # 3. Panggil API server SSH/VPN Anda untuk menerapkan perubahan.
-        
+
         # Simulasi dummy:
         found = False
         for acc in _accounts_db:
@@ -90,7 +90,7 @@ async def renew_account(username: str, renew_type: str, user_id: int) -> bool:
                 logger.info(f"Dummy renewed {username} to {acc['expiration_date']}")
                 found = True
                 break
-        
+
         if found:
             return True # Simulasi sukses
         else:
@@ -105,7 +105,7 @@ async def get_ssh_account_list(user_id: int) -> str:
     Mengambil daftar akun SSH dari sistem/VPS nyata dengan memanggil script shell.
     """
     logger.info(f"Fetching SSH account list from system for user: {user_id}")
-    
+
     try:
         # Panggil script shell 'list_ssh_users.sh' yang harus Anda buat
         p = subprocess.run(
@@ -115,20 +115,51 @@ async def get_ssh_account_list(user_id: int) -> str:
             check=True, # Akan raise CalledProcessError jika script gagal
             timeout=30 # Timeout 30 detik
         )
-        
+
         output_lines = p.stdout.strip()
-        
+
         if not output_lines or "Belum ada akun SSH yang ditemukan di sistem." in output_lines:
             return "Belum ada akun SSH yang terdaftar di VPS."
-        
+
         return output_lines
-        
+
     except subprocess.CalledProcessError as e:
         logger.error(f"Error calling list_ssh_users.sh: {e.stderr}", exc_info=True)
         return "❌ Gagal mengambil daftar akun: Error skrip. Hubungi admin."
     except Exception as e:
         logger.error(f"General error getting SSH account list: {e}", exc_info=True)
         return "❌ Terjadi kesalahan saat mengambil daftar akun. Coba lagi nanti."
+
+async def get_vmess_account_list(user_id: int) -> str: # <--- FUNGSI BARU UNTUK VMESS LIST
+    """
+    Mengambil daftar akun VMESS dari sistem/VPS nyata dengan memanggil script shell.
+    Anda perlu membuat list_vmess_users.sh
+    """
+    logger.info(f"Fetching VMESS account list from system for user: {user_id}")
+
+    try:
+        # Panggil script shell baru 'list_vmess_users.sh'
+        p = subprocess.run(
+            ['sudo', '/opt/hokage-bot/list_vmess_users.sh'], # Anda perlu membuat script ini
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30
+        )
+
+        output_lines = p.stdout.strip()
+
+        if not output_lines or "Belum ada akun VMESS yang ditemukan di sistem." in output_lines:
+            return "Belum ada akun VMESS yang terdaftar di VPS."
+
+        return output_lines
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error calling list_vmess_users.sh: {e.stderr}", exc_info=True)
+        return "❌ Gagal mengambil daftar akun VMESS: Error skrip. Hubungi admin."
+    except Exception as e:
+        logger.error(f"General error getting VMESS account list: {e}", exc_info=True)
+        return "❌ Terjadi kesalahan saat mengambil daftar akun VMESS. Coba lagi nanti."
 
 # Fungsi placeholder untuk pembuatan akun SSH (Jika Anda mengelola di database)
 async def create_ssh_account(username: str, password: str, duration: int, ip_limit: int, user_id: int) -> bool:
