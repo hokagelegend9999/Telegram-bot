@@ -1,3 +1,5 @@
+# /opt/hokage-bot/keyboards.py
+
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -26,7 +28,7 @@ def get_renew_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("🔐 Renew SSH", callback_data="renew_ssh")],
         [InlineKeyboardButton("🔒 Renew VPN", callback_data="renew_vpn")],
-        [InlineKeyboardButton("🔄 Renew Both", callback_data="renew_both")],
+        [InlineKeyboardButton("🔄 Renew All", callback_data="renew_all")],
         [InlineKeyboardButton("⬅️ Kembali", callback_data="menu_ssh")]
     ]
     return InlineKeyboardMarkup(keyboard)
