@@ -11,7 +11,6 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler
 )
-# Pastikan import ini benar (tanpa titik karena menggunakan import absolut)
 import keyboards
 import config
 import database
@@ -30,11 +29,9 @@ RENEW_GET_USERNAME, RENEW_SELECT_TYPE, RENEW_CONFIRMATION = map(chr, range(11, 1
 
 # --- Helper Functions ---
 def is_admin(update: Update) -> bool:
-    # Pastikan config.ADMIN_TELEGRAM_ID ada dan berupa integer di config.py
     return update.effective_user.id == config.ADMIN_TELEGRAM_ID
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Mengirim pesan selamat datang dan menu utama."""
     user = update.effective_user
     database.add_user_if_not_exists(user.id, user.first_name, user.username) 
     await update.message.reply_text(
@@ -45,7 +42,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ROUTE 
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Menampilkan menu utama."""
     await update.message.reply_text(
         "Please select from the menu below:",
         reply_markup=keyboards.get_main_menu_keyboard()
@@ -58,17 +54,16 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     await update.message.reply_text("Welcome to Admin Panel.")
 
-# --- Handler untuk Error Script ---
 async def handle_script_error(update: Update, context: ContextTypes.DEFAULT_TYPE, error: Exception):
     msg = f"Error occurred: {error}"
     if isinstance(error, subprocess.CalledProcessError):
         msg = error.stdout.strip() or error.stderr.strip() or "Script failed without error output."
 
     target_message = update.callback_query.message if update.callback_query else update.message
-    
+
     if target_message:
         if update.callback_query:
-            await target_message.edit_text( # Ganti edit_message_text dengan edit_text untuk Inline Buttons
+            await target_message.edit_text(
                 f"❌ <b>Failed:</b>\n<pre>{msg}</pre>",
                 parse_mode='HTML',
                 reply_markup=keyboards.get_back_to_menu_keyboard()
@@ -79,11 +74,10 @@ async def handle_script_error(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode='HTML',
                 reply_markup=keyboards.get_main_menu_keyboard()
             )
-    
+
     logger.error(f"Script execution error: {msg}", exc_info=True)
     return ROUTE
 
-# --- Main Handler (route_handler) ---
 async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -99,12 +93,11 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             reply_markup=keyboards.get_main_menu_keyboard()
         )
         return ROUTE
-    
-    # Pemilihan Menu (SSH, VMESS, VLESS, TROJAN, Tools)
+
     if command in ["menu_ssh", "menu_vmess", "menu_vless", "menu_trojan", "menu_tools"]:
         menu_name = command.split('_')[1].upper()
-        
-        keyboard_to_send = keyboards.get_back_to_menu_keyboard() # Default fallback
+
+        keyboard_to_send = keyboards.get_back_to_menu_keyboard()
 
         if menu_name == "SSH":
             keyboard_to_send = keyboards.get_ssh_menu_keyboard()
@@ -151,11 +144,11 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text("⏳ Mengambil daftar akun SSH Anda...")
         try:
             account_list_text = await database.get_ssh_account_list(user_id)
-            
+
             await query.edit_message_text(
                 f"<b>📋 Daftar Akun SSH Anda:</b>\n\n<pre>{account_list_text}</pre>",
                 parse_mode='HTML',
-                reply_markup=keyboards.get_ssh_menu_keyboard() # Kembali ke menu SSH setelah menampilkan list
+                reply_markup=keyboards.get_ssh_menu_keyboard() 
             )
         except Exception as e:
             logger.error(f"Error fetching SSH account list for user {user_id}: {e}", exc_info=True)
@@ -165,11 +158,31 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             )
         return ROUTE
 
-    # --- Script Execution Commands (Trial, Restart, Backup, Restore, Trial Cleanup, Reboot Server) ---
+    # --- Fitur List Akun VMESS (BARU) ---
+    if command == "vmess_list":
+        await query.edit_message_text("⏳ Mengambil daftar akun VMESS Anda...")
+        try:
+            # Panggil fungsi baru di database.py untuk VMESS
+            account_list_text = await database.get_vmess_account_list(user_id) 
+
+            await query.edit_message_text(
+                f"<b>📋 Daftar Akun VMESS Anda:</b>\n\n<pre>{account_list_text}</pre>",
+                parse_mode='HTML',
+                reply_markup=keyboards.get_vmess_menu_keyboard() 
+            )
+        except Exception as e:
+            logger.error(f"Error fetching VMESS account list for user {user_id}: {e}", exc_info=True)
+            await query.edit_message_text(
+                "❌ Gagal mengambil daftar akun VMESS. Mohon coba lagi nanti.",
+                reply_markup=keyboards.get_vmess_menu_keyboard()
+            )
+        return ROUTE
+
+    # --- Script Execution Commands ---
     script_map = {
         "ssh_trial": "create_trial_ssh.sh",
-        "vmess_trial": "create_trial_vmess.sh",
-        "vless_trial": "create_trial_vless.sh",
+        "vmess_trial": "create_trial_vmess.sh", # VMESS Trial
+        "vless_trial": "create_trial_vless.sh", 
         "trojan_trial": "create_trial_trojan.sh",
         "menu_restart": "restart_for_bot.sh",
         "menu_running": "check_status_for_bot.sh",
@@ -185,12 +198,12 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         if command in ["confirm_restore", "menu_backup", "reboot_server"]:
             wait_message = f"⚙️ *Starting {command.replace('menu_', '')} process...*\n\nThis may take several minutes."
             timeout = 300
-        
+
         if command == "reboot_server":
             await query.edit_message_text("🚨 **Server akan me-reboot dalam beberapa detik!**\nBot akan offline sementara.", parse_mode='Markdown')
             subprocess.Popen(['sudo', f'/opt/hokage-bot/{script_map[command]}']) 
             return ConversationHandler.END 
-            
+
         await query.edit_message_text(wait_message, parse_mode='Markdown')
         try:
             p = subprocess.run(
@@ -285,7 +298,7 @@ async def renew_confirm_proceed(update: Update, context: ContextTypes.DEFAULT_TY
         script_to_run = "renew_vpn.sh" 
     elif renew_type == "renew_all":
         script_to_run = "renew_all.sh" 
-        
+
     if script_to_run:
         try:
             p = subprocess.run(
