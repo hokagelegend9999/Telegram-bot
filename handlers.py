@@ -59,10 +59,18 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Menampilkan menu utama."""
     target_message = update.callback_query.message if update.callback_query else update.message
     if target_message:
-        await target_message.reply_text(
-            "Please select from the menu below:",
-            reply_markup=keyboards.get_main_menu_keyboard()
-        )
+        # Check if the message can be edited (e.g., if it's a callback query)
+        if update.callback_query and target_message.text:
+            await target_message.edit_text(
+                "Please select from the menu below:",
+                reply_markup=keyboards.get_main_menu_keyboard()
+            )
+        else:
+            # If it's a new command or message, just send a new one
+            await update.effective_chat.send_message(
+                "Please select from the menu below:",
+                reply_markup=keyboards.get_main_menu_keyboard()
+            )
     return ROUTE
 
 async def handle_script_error(update: Update, context: ContextTypes.DEFAULT_TYPE, error: Exception):
@@ -73,9 +81,11 @@ async def handle_script_error(update: Update, context: ContextTypes.DEFAULT_TYPE
         error_output = error.stdout.strip() or error.stderr.strip()
         msg = error_output or "Script failed with a non-zero exit code but no error output."
     elif isinstance(error, FileNotFoundError):
-        msg = "Script file not found. Please check the path and permissions. Make sure it's in /opt/hokage-bot/"
+        msg = f"Script file not found ({error}). Please check the path and permissions. Make sure it's in /opt/hokage-bot/"
     elif isinstance(error, TimeoutError): # Menambahkan penanganan Timeout
         msg = "Script execution timed out. It took too long to respond."
+    elif isinstance(error, ValueError) and "did not return a valid state" in str(error):
+        msg = "Bot is currently in an unexpected state. Please use /cancel or /menu to reset."
 
     # Tentukan di mana pesan error harus dikirim (pesan asli atau callback message)
     target_message = update.callback_query.message if update.callback_query else update.message
@@ -121,10 +131,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text(f"{menu_name} PANEL MENU", reply_markup=keyboard)
         return ROUTE
 
-    # Pemula konversasi (ADD) - ini akan ditangani oleh ConversationHandler di main.py
-    # CallbackQueryHandler di main.py akan memanggil `route_handler` ini,
-    # lalu ConversationHandler akan "mencegat" callback ini dan memulai konversasi.
-    # Namun, kita tetap butuh ini untuk mengirim pesan awal.
+    # Pemula konversasi (ADD)
     conv_starters = {
         "ssh_add": ("SSH Username:", SSH_GET_USERNAME),
         "vmess_add": ("VMESS Username:", VMESS_GET_USER),
@@ -134,7 +141,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if command in conv_starters:
         raw_text, state = conv_starters[command]
         await query.edit_message_text(f"➡️ Masukkan {raw_text}")
-        return state # State ini akan ditangkap oleh ConversationHandler di main.py
+        return state
 
     # Renew SSH
     if command == "ssh_renew":
@@ -154,7 +161,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text(f"➡️ Masukkan <b>{prompt_text}</b> akun yang ingin dihapus:", parse_mode='HTML')
         return state # DELETE_GET_USERNAME
 
-    # Trial Handlers (memulai konversasi trial) - ini juga akan di-intercept oleh ConversationHandler
+    # Trial Handlers (memulai konversasi trial)
     trial_starters = {
         "ssh_trial": ("SSH", TRIAL_CREATE_SSH),
         "vmess_trial": ("VMESS", TRIAL_CREATE_VMESS),
@@ -191,8 +198,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/backup_for_bot.sh'], "Proses Backup:")
         return ROUTE
     elif command == "confirm_restore": # Triggered by tools menu's "⬇️ Restore" button
-        # This will set a flag in user_data to indicate intent to restore
-        context.user_data['action_to_confirm'] = 'restore'
+        context.user_data['action_to_confirm'] = 'restore' # Set flag
         await query.edit_message_text(
             "⚠️ **PERINGATAN!**\n\nMelakukan restore akan menimpa konfigurasi yang ada. "
             "Pastikan Anda memiliki backup terbaru.\n\nLanjutkan?",
@@ -201,37 +207,38 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         )
         return ROUTE 
     elif command == "reboot_server": # Triggered by tools menu's "🔄 Reboot Server" button
-        context.user_data['action_to_confirm'] = 'reboot'
+        context.user_data['action_to_confirm'] = 'reboot' # Set flag
         await query.edit_message_text(
             "⚠️ **PERINGATAN!**\n\nServer akan reboot dan bot akan berhenti sementara. Lanjutkan?",
             parse_mode='Markdown',
             reply_markup=keyboards.get_confirmation_keyboard()
         )
         return ROUTE
-    elif command == "confirm_proceed": # Handles 'Ya, Lanjutkan' button
-        action = context.user_data.pop('action_to_confirm', None)
-        if action == 'restore':
-            await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/restore_for_bot.sh'], "Proses Restore:")
-        elif action == 'reboot':
-            await query.edit_message_text("⏳ Server akan reboot dalam beberapa detik...", reply_markup=keyboards.get_back_to_menu_keyboard())
-            try:
-                subprocess.Popen(['sudo', 'reboot']) # Eksekusi reboot
-            except Exception as e:
-                await handle_script_error(update, context, e)
-        else:
-            await query.edit_message_text("Aksi konfirmasi tidak dikenal.", reply_markup=keyboards.get_back_to_menu_keyboard())
-        return ROUTE
-    elif command == "cancel_action": # Handles '❌ Batal' button
-        context.user_data.pop('action_to_confirm', None) # Clear any pending confirmation
-        await query.edit_message_text("Operasi dibatalkan.", reply_markup=keyboards.get_back_to_menu_keyboard())
-        return ROUTE
     elif command == "trial_cleanup":
         await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/trial_cleanup.sh'], "Trial Cleanup:")
         return ROUTE
-
+    
+    # Handle general confirmations for tools menu (confirm_proceed and cancel_action)
+    # This logic only applies if 'action_to_confirm' was set by a tools menu action.
+    elif command in ["confirm_proceed", "cancel_action"]:
+        action = context.user_data.pop('action_to_confirm', None)
+        if command == "confirm_proceed":
+            if action == 'restore':
+                await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/restore_for_bot.sh'], "Proses Restore:")
+            elif action == 'reboot':
+                await query.edit_message_text("⏳ Server akan reboot dalam beberapa detik...", reply_markup=keyboards.get_back_to_menu_keyboard())
+                try:
+                    subprocess.Popen(['sudo', 'reboot']) # Eksekusi reboot
+                except Exception as e:
+                    await handle_script_error(update, context, e)
+            else:
+                await query.edit_message_text("Aksi konfirmasi tidak dikenal atau sudah kadaluarsa.", reply_markup=keyboards.get_back_to_menu_keyboard())
+        elif command == "cancel_action":
+            await query.edit_message_text("Operasi dibatalkan.", reply_markup=keyboards.get_back_to_menu_keyboard())
+        return ROUTE # Always return ROUTE after handling these confirmations
 
     logger.warning(f"Unhandled callback query: {command} in route_handler.")
-    await query.edit_message_text(f"Fitur {command} belum diimplementasikan.", reply_markup=keyboards.get_back_to_menu_keyboard())
+    await query.edit_message_text(f"Fitur {command} belum diimplementasikan atau tidak dikenal.", reply_markup=keyboards.get_back_to_menu_keyboard())
     return ROUTE
 
 
@@ -240,18 +247,36 @@ async def run_script_and_reply(update: Update, context: ContextTypes.DEFAULT_TYP
     target_message = update.callback_query.message if update.callback_query else update.message
     
     if update.callback_query:
-        await update.callback_query.answer()
-        await target_message.edit_text("⏳ Sedang memproses, mohon tunggu...")
+        # await update.callback_query.answer() # Answered in route_handler
+        pass # Already answered
+    
+    # Send a processing message, try to edit if possible
+    processing_text = "⏳ Sedang memproses, mohon tunggu..."
+    if update.callback_query and target_message.text:
+        try:
+            await target_message.edit_text(processing_text)
+        except Exception:
+            await update.effective_chat.send_message(processing_text)
     else:
-        await target_message.reply_text("⏳ Sedang memproses, mohon tunggu...")
+        await target_message.reply_text(processing_text)
         
     try:
         p = subprocess.run(script_command, capture_output=True, text=True, check=True, timeout=60) # Timeout 60 detik
         output = p.stdout.strip()
         if output:
-            await target_message.edit_text(f"✅ **{success_message}**\n\n`{output}`", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
+            response_text = f"✅ **{success_message}**\n\n`{output}`"
         else:
-            await target_message.edit_text(f"✅ **{success_message}**\n\nOperasi selesai, tidak ada output spesifik.", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
+            response_text = f"✅ **{success_message}**\n\nOperasi selesai, tidak ada output spesifik."
+            
+        # Try to edit the message, if fails send new
+        if update.callback_query and target_message.text:
+            try:
+                await target_message.edit_text(response_text, parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
+            except Exception:
+                await update.effective_chat.send_message(response_text, parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
+        else:
+            await target_message.reply_text(response_text, parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
+
     except Exception as e:
         await handle_script_error(update, context, e)
 
@@ -320,8 +345,6 @@ async def renew_ssh_get_duration_and_execute(update: Update, context: ContextTyp
 
 # --- SSH List Handler ---
 async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # Handler ini dipanggil langsung dari route_handler via CallbackQueryHandler
-    # Jadi update.callback_query pasti ada.
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("⏳ Mengambil daftar akun SSH...", reply_markup=keyboards.get_back_to_menu_keyboard())
@@ -352,6 +375,7 @@ async def create_ssh_trial_account(update: Update, context: ContextTypes.DEFAULT
     
     await update.message.reply_text("⏳ Membuat akun Trial SSH...")
     try:
+        # Asumsi script create_trial_ssh.sh hanya butuh durasi atau generate username sendiri
         p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_ssh.sh', duration], capture_output=True, text=True, check=True, timeout=30)
         await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
     except Exception as e:
@@ -392,13 +416,14 @@ async def delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
             if protocol.lower() == 'ssh':
                 script_path = '/opt/hokage-bot/delete-ssh.sh' # Sesuai dengan ls Anda
             elif protocol.lower() == 'vmess':
-                script_path = '/opt/hokage-bot/delete_vmess_user.sh' # Anda perlu membuat script ini
+                script_path = '/opt/hokage-bot/delete_vmess_user.sh' # Ini akan memanggil script yang baru Anda buat
             elif protocol.lower() == 'vless':
-                script_path = '/opt/hokage-bot/delete_vless_user.sh' # Anda perlu membuat script ini
+                script_path = '/opt/hokage-bot/delete_vless_user.sh' # Anda perlu membuat script ini jika belum ada
             elif protocol.lower() == 'trojan':
-                script_path = '/opt/hokage-bot/delete_trojan_user.sh' # Anda perlu membuat script ini
+                script_path = '/opt/hokage-bot/delete_trojan_user.sh' # Anda perlu membuat script ini jika belum ada
             else:
-                raise ValueError(f"Protokol {protocol} tidak didukung untuk penghapusan.")
+                # Ini akan menangani kasus di mana protocol tidak dikenal atau script tidak didefinisikan
+                raise ValueError(f"Protokol {protocol} tidak didukung untuk penghapusan atau script tidak ditemukan.")
 
             p = subprocess.run(['sudo', script_path, username_to_delete], capture_output=True, text=True, check=True, timeout=30)
             await query.edit_message_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
@@ -490,7 +515,7 @@ async def vless_get_ip_limit(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return VLESS_GET_QUOTA
 
 async def vless_get_quota_and_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if not update.message.text.isdigit() or int(update.message.text) < 0: # Kuota bisa 0
+    if not update.message.text.isdigit() or int(update.message.text) < 0:
         await update.message.reply_text("❌ Kuota GB harus berupa angka. Silakan coba lagi.")
         return VLESS_GET_QUOTA
     context.user_data['quota_gb'] = update.message.text
@@ -617,14 +642,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if context.user_data:
         context.user_data.clear()
     target_message = update.message if update.message else update.callback_query.message
-    await target_message.reply_text("❌ Operasi dibatalkan.", reply_markup=keyboards.get_main_menu_keyboard())
+    # Always send a new message for cancel for clarity
+    await update.effective_chat.send_message("❌ Operasi dibatalkan.", reply_markup=keyboards.get_main_menu_keyboard())
     return ConversationHandler.END
 
 async def back_to_menu_from_conv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handler khusus untuk tombol 'Kembali' di tengah konversasi."""
     if context.user_data:
         context.user_data.clear()
-    # Panggil fungsi menu untuk menampilkan menu utama
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("Dibatalkan, kembali ke menu utama.", reply_markup=keyboards.get_main_menu_keyboard())
