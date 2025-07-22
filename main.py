@@ -10,11 +10,8 @@ from telegram.ext import (
     ContextTypes
 )
 
-# (Disarankan) Import token dan konfigurasi lain dari config.py
 import config
-
-# Import semua handler dan state yang dibutuhkan dari handlers.py
-import handlers
+import handlers # Mengimpor semua dari handlers.py
 import database
 
 # Configure logging
@@ -45,60 +42,170 @@ def main() -> None:
     # Tambahkan error handler
     application.add_error_handler(error_handler)
 
-    # ConversationHandler utama yang mengatur semua alur bot
-    conv_handler = ConversationHandler(
-        entry_points=[
-            CommandHandler("start", handlers.start),
-            CommandHandler("menu", handlers.menu),
-            # Menjadikan semua tombol sebagai entry point utama
-            CallbackQueryHandler(handlers.route_handler)
-        ],
-        states={
-            # State utama, menunggu input dari tombol menu
-            handlers.ROUTE: [
-                CallbackQueryHandler(handlers.route_handler)
-            ],
+    # --- Command Handlers ---
+    application.add_handler(CommandHandler("start", handlers.start))
+    application.add_handler(CommandHandler("menu", handlers.menu))
+    application.add_handler(CommandHandler("cancel", handlers.cancel)) # Global cancel command
 
-            # --- Alur Pembuatan Akun ---
-            # SSH
+    # --- CallbackQueryHandlers untuk Menu Navigasi Utama ---
+    # Ini akan memanggil handlers.route_handler untuk menampilkan sub-menu
+    application.add_handler(CallbackQueryHandler(handlers.route_handler, pattern="^(main_menu|back_to_main_menu|menu_ssh|menu_vmess|menu_vless|menu_trojan|menu_tools)$"))
+
+    # --- CallbackQueryHandlers untuk Aksi Sekali Jalan (List, Tools) ---
+    # Aksi ini tidak memulai konversasi, hanya menjalankan script dan merespon.
+    application.add_handler(CallbackQueryHandler(handlers.ssh_list_accounts, pattern="^ssh_list$"))
+    application.add_handler(CallbackQueryHandler(handlers.vmess_list_accounts, pattern="^vmess_list$"))
+    application.add_handler(CallbackQueryHandler(handlers.vless_list_accounts, pattern="^vless_list$"))
+    application.add_handler(CallbackQueryHandler(handlers.trojan_list_accounts, pattern="^trojan_list$"))
+
+    # Tools handlers yang memerlukan route_handler untuk penanganan lanjutan (konfirmasi dll)
+    application.add_handler(CallbackQueryHandler(handlers.route_handler, pattern="^(menu_running|menu_restart|menu_backup|confirm_restore|confirm_proceed|cancel_action|reboot_server|trial_cleanup)$"))
+
+
+    # --- ConversationHandlers untuk Alur Multi-Langkah (Create, Renew, Trial, Delete) ---
+
+    # 1. SSH Creation Conversation
+    application.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^ssh_add$")],
+        states={
             handlers.SSH_GET_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.ssh_get_username)],
             handlers.SSH_GET_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.ssh_get_password)],
             handlers.SSH_GET_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.ssh_get_duration)],
             handlers.SSH_GET_IP_LIMIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.ssh_get_ip_limit_and_create)],
-            
-            # VMESS
-            handlers.VMESS_GET_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vmess_get_user)],
-            handlers.VMESS_GET_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vmess_get_duration)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", handlers.cancel),
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
+        ],
+        map_to_parent={handlers.ROUTE: handlers.ROUTE}, # Kembali ke ROUTE utama setelah selesai
+        per_user=True, per_chat=False # Pastikan ini diatur dengan benar
+    ))
 
-            # VLESS (Pastikan handler-nya ada di handlers.py)
-            handlers.VLESS_GET_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vless_get_user)],
-            handlers.VLESS_GET_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vless_get_duration)],
-            handlers.VLESS_GET_IP_LIMIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vless_get_ip_limit)],
-            handlers.VLESS_GET_QUOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vless_get_quota_and_create)],
-
-            # TROJAN (Pastikan handler-nya ada di handlers.py)
-            handlers.TROJAN_GET_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.trojan_get_user)],
-            handlers.TROJAN_GET_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.trojan_get_duration)],
-            handlers.TROJAN_GET_IP_LIMIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.trojan_get_ip_limit)],
-            handlers.TROJAN_GET_QUOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.trojan_get_quota_and_create)],
-
-            # --- Alur Perpanjangan Akun (YANG BARU DITAMBAHKAN) ---
+    # 2. SSH Renewal Conversation
+    application.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^ssh_renew$")],
+        states={
             handlers.RENEW_SSH_GET_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.renew_ssh_get_username)],
             handlers.RENEW_SSH_GET_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.renew_ssh_get_duration_and_execute)],
         },
         fallbacks=[
             CommandHandler("cancel", handlers.cancel),
-            CommandHandler("menu", handlers.menu) # /menu bisa membatalkan dan kembali ke menu
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        # Agar state tidak hangus jika user lama membalas
-        conversation_timeout=600, # Timeout dalam 10 menit
-        # Memungkinkan handler di luar state ini (misal: tombol menu) bisa diakses
-        per_user=True,
-        per_chat=True
-    )
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
+    ))
 
-    # Daftarkan handler utama
-    application.add_handler(conv_handler)
+    # 3. VMESS Creation Conversation
+    application.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^vmess_add$")],
+        states={
+            handlers.VMESS_GET_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vmess_get_user)],
+            handlers.VMESS_GET_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vmess_get_duration)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", handlers.cancel),
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
+        ],
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
+    ))
+    
+    # 4. VMESS Trial Creation Conversation
+    application.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^vmess_trial$")],
+        states={
+            handlers.TRIAL_CREATE_VMESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.create_vmess_trial_account)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", handlers.cancel),
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
+        ],
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
+    ))
+
+    # 5. VLESS Creation Conversation
+    application.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^vless_add$")],
+        states={
+            handlers.VLESS_GET_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vless_get_user)],
+            handlers.VLESS_GET_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vless_get_duration)],
+            handlers.VLESS_GET_IP_LIMIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vless_get_ip_limit)],
+            handlers.VLESS_GET_QUOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vless_get_quota_and_create)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", handlers.cancel),
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
+        ],
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
+    ))
+
+    # 6. VLESS Trial Creation Conversation
+    application.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^vless_trial$")],
+        states={
+            handlers.TRIAL_CREATE_VLESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.create_vless_trial_account)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", handlers.cancel),
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
+        ],
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
+    ))
+
+    # 7. TROJAN Creation Conversation
+    application.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^trojan_add$")],
+        states={
+            handlers.TROJAN_GET_USER: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.trojan_get_user)],
+            handlers.TROJAN_GET_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.trojan_get_duration)],
+            handlers.TROJAN_GET_IP_LIMIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.trojan_get_ip_limit)],
+            handlers.TROJAN_GET_QUOTA: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.trojan_get_quota_and_create)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", handlers.cancel),
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
+        ],
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
+    ))
+
+    # 8. TROJAN Trial Creation Conversation
+    application.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^trojan_trial$")],
+        states={
+            handlers.TRIAL_CREATE_TROJAN: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.create_trojan_trial_account)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", handlers.cancel),
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
+        ],
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
+    ))
+
+    # 9. Delete Account Conversation (Generik untuk semua jenis akun)
+    application.add_handler(ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(handlers.route_handler, pattern="^ssh_delete$"),
+            CallbackQueryHandler(handlers.route_handler, pattern="^vmess_delete$"),
+            CallbackQueryHandler(handlers.route_handler, pattern="^vless_delete$"),
+            CallbackQueryHandler(handlers.route_handler, pattern="^trojan_delete$")
+        ],
+        states={
+            handlers.DELETE_GET_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.delete_get_username)],
+            handlers.DELETE_CONFIRMATION: [CallbackQueryHandler(handlers.delete_confirmation, pattern="^(confirm_proceed|cancel_action)$")]
+        },
+        fallbacks=[
+            CommandHandler("cancel", handlers.cancel),
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
+        ],
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
+    ))
 
     # Jalankan bot
     logger.info("Bot started and running...")
