@@ -26,20 +26,14 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     """Menangani semua error yang tidak tertangkap."""
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
     
-    # Kirim pesan error ke user jika memungkinkan
     if isinstance(update, Update) and update.effective_message:
         text = "⚠️ Terjadi kesalahan internal. Silakan coba lagi atau hubungi admin."
         await update.effective_message.reply_text(text)
 
 def main() -> None:
     """Memulai dan menjalankan bot."""
-    # Inisialisasi database
     database.init_db()
-
-    # Buat Application builder
     application = Application.builder().token(config.BOT_TOKEN).build()
-
-    # Tambahkan error handler
     application.add_error_handler(error_handler)
 
     # --- Command Handlers ---
@@ -47,19 +41,18 @@ def main() -> None:
     application.add_handler(CommandHandler("menu", handlers.menu))
     application.add_handler(CommandHandler("cancel", handlers.cancel)) # Global cancel command
 
-    # --- CallbackQueryHandlers untuk Menu Navigasi Utama ---
-    # Ini akan memanggil handlers.route_handler untuk menampilkan sub-menu
-    application.add_handler(CallbackQueryHandler(handlers.route_handler, pattern="^(main_menu|back_to_main_menu|menu_ssh|menu_vmess|menu_vless|menu_trojan|menu_tools)$"))
+    # --- CallbackQueryHandlers untuk Menu Navigasi Utama dan Tools (yang tidak memulai konv) ---
+    # Pola di sini harus spesifik untuk tombol menu utama dan tombol tools tertentu.
+    # Hindari pola 'confirm_proceed' dan 'cancel_action' agar tidak bentrok dengan ConversationHandler.
+    # 'confirm_proceed' dan 'cancel_action' untuk tools sekarang ditangani di dalam route_handler.
+    application.add_handler(CallbackQueryHandler(handlers.route_handler, pattern="^(main_menu|back_to_main_menu|menu_ssh|menu_vmess|menu_vless|menu_trojan|menu_tools|menu_running|menu_restart|menu_backup|confirm_restore|reboot_server|trial_cleanup|confirm_proceed|cancel_action)$"))
 
-    # --- CallbackQueryHandlers untuk Aksi Sekali Jalan (List, Tools) ---
-    # Aksi ini tidak memulai konversasi, hanya menjalankan script dan merespon.
+
+    # --- CallbackQueryHandlers untuk Aksi Sekali Jalan (List) ---
     application.add_handler(CallbackQueryHandler(handlers.ssh_list_accounts, pattern="^ssh_list$"))
     application.add_handler(CallbackQueryHandler(handlers.vmess_list_accounts, pattern="^vmess_list$"))
     application.add_handler(CallbackQueryHandler(handlers.vless_list_accounts, pattern="^vless_list$"))
     application.add_handler(CallbackQueryHandler(handlers.trojan_list_accounts, pattern="^trojan_list$"))
-
-    # Tools handlers yang memerlukan route_handler untuk penanganan lanjutan (konfirmasi dll)
-    application.add_handler(CallbackQueryHandler(handlers.route_handler, pattern="^(menu_running|menu_restart|menu_backup|confirm_restore|confirm_proceed|cancel_action|reboot_server|trial_cleanup)$"))
 
 
     # --- ConversationHandlers untuk Alur Multi-Langkah (Create, Renew, Trial, Delete) ---
@@ -77,8 +70,8 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE}, # Kembali ke ROUTE utama setelah selesai
-        per_user=True, per_chat=False # Pastikan ini diatur dengan benar
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
     ))
 
     # 2. SSH Renewal Conversation
@@ -188,6 +181,8 @@ def main() -> None:
     ))
 
     # 9. Delete Account Conversation (Generik untuk semua jenis akun)
+    # Ini akan mengambil alih penanganan 'confirm_proceed' dan 'cancel_action'
+    # ketika bot berada dalam state DELETE_CONFIRMATION.
     application.add_handler(ConversationHandler(
         entry_points=[
             CallbackQueryHandler(handlers.route_handler, pattern="^ssh_delete$"),
@@ -197,6 +192,8 @@ def main() -> None:
         ],
         states={
             handlers.DELETE_GET_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.delete_get_username)],
+            # Penting: CallbackQueryHandler ini akan menangkap 'confirm_proceed' dan 'cancel_action'
+            # HANYA ketika dalam state DELETE_CONFIRMATION, sehingga tidak bentrok dengan route_handler.
             handlers.DELETE_CONFIRMATION: [CallbackQueryHandler(handlers.delete_confirmation, pattern="^(confirm_proceed|cancel_action)$")]
         },
         fallbacks=[
