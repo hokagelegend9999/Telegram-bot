@@ -106,7 +106,7 @@ def main() -> None:
     application.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^vmess_trial$")],
         states={
-            handlers.TRIAL_CREATE_VMESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.create_vmess_trial_account)],
+            handlers.TRIAL_CREATE_VMESS: [MessageHandler(filters.ALL, handlers.create_vmess_trial_account)], # <--- Perubahan filter untuk debugging
         },
         fallbacks=[
             CommandHandler("cancel", handlers.cancel),
@@ -201,11 +201,28 @@ def main() -> None:
         per_user=True, per_chat=False
     ))
 
+    # 10. VMESS List & View Config Conversation (BARU)
+    application.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^vmess_list$")], # Memulai alur list VMESS
+        states={
+            # State ini menunggu input nomor akun dari pengguna
+            handlers.VMESS_SELECT_ACCOUNT: [MessageHandler(filters.ALL, handlers.vmess_select_account_and_show_config)], # <--- Perubahan filter untuk debugging
+        },
+        fallbacks=[
+            CommandHandler("cancel", handlers.cancel),
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
+        ],
+        map_to_parent={handlers.ROUTE: handlers.ROUTE}, # Kembali ke ROUTE utama setelah selesai
+        per_user=True, per_chat=False
+    ))
+
+
     # --- CallbackQueryHandlers Global (Definisikan ini SETELAH semua ConversationHandler) ---
     # Ini akan menangani semua CallbackQuery yang tidak ditangkap oleh ConversationHandler di atas.
-    # Termasuk navigasi menu utama, List accounts, dan tombol tools (yang tidak memulai konversasi multi-langkah).
+    # Termasuk navigasi menu utama, dan tombol tools (yang tidak memulai konversasi multi-langkah).
     # Callback data 'confirm_proceed' dan 'cancel_action' di sini hanya untuk ALUR TOOLS (reboot, restore).
-    application.add_handler(CallbackQueryHandler(handlers.route_handler, pattern="^(main_menu|back_to_main_menu|menu_ssh|menu_vmess|menu_vless|menu_trojan|menu_tools|ssh_list|vmess_list|vless_list|trojan_list|menu_running|menu_restart|menu_backup|confirm_restore|reboot_server|trial_cleanup|confirm_proceed|cancel_action)$"))
+    # 'ssh_list', 'vless_list', 'trojan_list' tetap di sini karena belum diubah menjadi interaktif.
+    application.add_handler(CallbackQueryHandler(handlers.route_handler, pattern="^(main_menu|back_to_main_menu|menu_ssh|menu_vmess|menu_vless|menu_trojan|menu_tools|ssh_list|vless_list|trojan_list|menu_running|menu_restart|menu_backup|confirm_restore|reboot_server|trial_cleanup|confirm_proceed|cancel_action)$"))
 
     # Jalankan bot
     logger.info("Bot started and running...")
