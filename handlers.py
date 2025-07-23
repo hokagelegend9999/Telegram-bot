@@ -3,6 +3,8 @@
 import logging
 import subprocess
 import uuid # Untuk menghasilkan UUID unik jika diperlukan untuk username trial
+import os   # Untuk mengecek keberadaan file log konfigurasi
+
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     ContextTypes,
@@ -42,6 +44,9 @@ TRIAL_CREATE_SSH, TRIAL_CREATE_VMESS, TRIAL_CREATE_VLESS, TRIAL_CREATE_TROJAN = 
 
 # State untuk penghapusan akun
 DELETE_GET_USERNAME, DELETE_CONFIRMATION = map(chr, range(22, 24))
+
+# State baru untuk alur list & view config VMESS
+VMESS_SELECT_ACCOUNT = chr(25)
 # --- Akhir Definisi State ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -164,7 +169,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # Trial Handlers (memulai konversasi trial)
     trial_starters = {
         "ssh_trial": ("SSH", TRIAL_CREATE_SSH),
-        "vmess_trial": ("VMESS", TRIAL_CREATE_VMESS),
+        "vmess_trial": ("VMESS", TRIAL_CREATE_VMESS), 
         "vless_trial": ("VLESS", TRIAL_CREATE_VLESS),
         "trojan_trial": ("TROJAN", TRIAL_CREATE_TROJAN),
     }
@@ -173,19 +178,22 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text(f"➡️ Masukkan durasi (hari) untuk akun Trial {protocol_name}:")
         return state # TRIAL_CREATE_VMESS / VLESS / TROJAN
 
-    # List Handlers (tidak memulai konversasi, langsung eksekusi script)
+    # List Handlers (sekarang VMESS list akan memulai ConversationHandler)
     if command == "ssh_list":
         await ssh_list_accounts(update, context)
-        return ROUTE
+        return ROUTE # Jika list SSH juga mau interaktif, ubah ini
     elif command == "vmess_list":
+        # Untuk VMESS list, ini adalah entry_point ConversationHandler terpisah
+        # Jadi kita akan memanggil handler yang akan menampilkan daftar dan meminta pilihan
+        # Kemudian ConversationHandler akan mengelola state selanjutnya
         await vmess_list_accounts(update, context)
-        return ROUTE
+        return VMESS_SELECT_ACCOUNT # <--- Penting: Mengarahkan ke state awal konversasi list
     elif command == "vless_list":
         await vless_list_accounts(update, context)
-        return ROUTE
+        return ROUTE # Jika list VLESS juga mau interaktif, ubah ini
     elif command == "trojan_list":
         await trojan_list_accounts(update, context)
-        return ROUTE
+        return ROUTE # Jika list TROJAN juga mau interaktif, ubah ini
         
     # Tools Menu Handlers (langsung eksekusi script atau konfirmasi)
     if command == "menu_running":
@@ -345,6 +353,8 @@ async def renew_ssh_get_duration_and_execute(update: Update, context: ContextTyp
 
 # --- SSH List Handler ---
 async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # Handler ini dipanggil langsung dari route_handler via CallbackQueryHandler
+    # Jadi update.callback_query pasti ada.
     query = update.callback_query
     await query.answer()
     await query.edit_message_text("⏳ Mengambil daftar akun SSH...", reply_markup=keyboards.get_back_to_menu_keyboard())
@@ -406,7 +416,8 @@ async def delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if query.data == "confirm_proceed":
         if not username_to_delete or not protocol:
-            await query.edit_message_text("❌ Informasi akun tidak lengkap untuk dihapus.", reply_markup=keyboards.get_back_to_menu_keyboard())
+            logger.error("DEBUG_DELETE: Missing username_to_delete or protocol in context.user_data.")
+            await query.edit_message_text("❌ Informasi akun tidak lengkap untuk dihapus. Operasi dibatalkan.", reply_markup=keyboards.get_back_to_menu_keyboard())
             context.user_data.clear()
             return ROUTE
             
@@ -414,22 +425,25 @@ async def delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
         try:
             script_path = ''
             if protocol.lower() == 'ssh':
-                script_path = '/opt/hokage-bot/delete-ssh.sh' # Sesuai dengan ls Anda
+                script_path = '/opt/hokage-bot/delete-ssh.sh' 
             elif protocol.lower() == 'vmess':
-                script_path = '/opt/hokage-bot/delete_vmess_user.sh' # Ini akan memanggil script yang baru Anda buat
+                script_path = '/opt/hokage-bot/delete_vmess_user.sh' 
             elif protocol.lower() == 'vless':
-                script_path = '/opt/hokage-bot/delete_vless_user.sh' # Anda perlu membuat script ini jika belum ada
+                script_path = '/opt/hokage-bot/delete_vless_user.sh' 
             elif protocol.lower() == 'trojan':
-                script_path = '/opt/hokage-bot/delete_trojan_user.sh' # Anda perlu membuat script ini jika belum ada
+                script_path = '/opt/hokage-bot/delete_trojan_user.sh' 
             else:
-                # Ini akan menangani kasus di mana protocol tidak dikenal atau script tidak didefinisikan
+                logger.error(f"DEBUG_DELETE: Unknown protocol for delete: {protocol}")
                 raise ValueError(f"Protokol {protocol} tidak didukung untuk penghapusan atau script tidak ditemukan.")
 
+            logger.info(f"DEBUG_DELETE: Attempting to run script: {script_path} {username_to_delete}")
             p = subprocess.run(['sudo', script_path, username_to_delete], capture_output=True, text=True, check=True, timeout=30)
             await query.edit_message_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
         except Exception as e:
+            logger.error(f"DEBUG_DELETE: Script execution failed for {protocol} delete.", exc_info=True)
             await handle_script_error(update, context, e)
     else: # cancel_action
+        logger.info("DEBUG_DELETE: Delete operation cancelled by user.")
         await query.edit_message_text("Operasi penghapusan dibatalkan.", reply_markup=keyboards.get_back_to_menu_keyboard())
         
     context.user_data.clear() # Bersihkan data setelah selesai
@@ -457,39 +471,131 @@ async def vmess_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.clear()
     return ROUTE
 
-# --- VMESS List Handler ---
+# --- VMESS List Accounts (REVISI untuk interaktif) ---
 async def vmess_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("⏳ Mengambil daftar akun VMESS...", reply_markup=keyboards.get_back_to_menu_keyboard())
+
+    # Panggil script untuk mendapatkan daftar akun
     try:
         p = subprocess.run(['sudo', '/opt/hokage-bot/list_vmess_users.sh'], capture_output=True, text=True, check=True, timeout=30)
-        await query.edit_message_text(f"📋 **Daftar Akun VMESS:**\n\n{p.stdout}", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
+        script_output = p.stdout.strip()
     except Exception as e:
         await handle_script_error(update, context, e)
-    return ROUTE
+        return ROUTE # Kembali ke ROUTE jika ada error
 
-# --- VMESS Trial Handlers ---
-async def start_vmess_trial_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("➡️ Masukkan durasi (hari) untuk akun Trial VMESS:")
-    return TRIAL_CREATE_VMESS
+    # Jika tidak ada klien
+    if script_output == "NO_CLIENTS":
+        await query.edit_message_text("ℹ️ *Belum ada akun VMESS yang terdaftar di sistem.*", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
+        return ROUTE # Kembali ke ROUTE utama
+    
+    # Parsing output script
+    account_details = []
+    output_lines = script_output.splitlines()
+    for line in output_lines:
+        parts = line.split(' ', 2) # Pisahkan No, User, Expired
+        if len(parts) == 3:
+            account_details.append({
+                'num': parts[0],
+                'user': parts[1],
+                'exp': parts[2]
+            })
+    
+    context.user_data['vmess_accounts_list'] = account_details # Simpan daftar untuk langkah berikutnya
 
-async def create_vmess_trial_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    duration = update.message.text
-    if not duration.isdigit() or int(duration) <= 0:
-        await update.message.reply_text("❌ Durasi harus berupa angka positif. Silakan coba lagi.")
-        return TRIAL_CREATE_VMESS
-        
-    await update.message.reply_text("⏳ Membuat akun Trial VMESS...")
+    # Format pesan untuk Telegram
+    list_text = "📋 *DAFTAR AKUN VMESS*\n"
+    list_text += "---------------------------------------------------\n"
+    list_text += "*No* | *Username* | *Expired (YYYY-MM-DD)*\n"
+    list_text += "---------------------------------------------------\n"
+
+    for acc in account_details:
+        printf_user = "{:<18}".format(acc['user']) # Padding untuk username
+        printf_exp = "{:<20}".format(acc['exp'])   # Padding untuk expired date
+        list_text += f"{acc['num']:<3} | `{printf_user}` | `{printf_exp}`\n"
+    
+    list_text += "---------------------------------------------------\n"
+    list_text += f"📊 *Total:* `{len(account_details)}` akun.\n"
+    list_text += "💡 *Tip:* Ketik nomor akun untuk melihat detail konfigurasi."
+    list_text += "\n\nKetik `0` untuk kembali."
+
+    await query.edit_message_text(list_text, parse_mode='Markdown')
+    return VMESS_SELECT_ACCOUNT # Kembali ke state ini untuk menunggu nomor pilihan
+
+async def vmess_select_account_and_show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    logger.info(f"*** DEBUG_VMESS_SELECT_HANDLER_CALLED ***")
+    logger.info(f"User input received: {update.message.text}")
+    logger.info(f"User data content: {context.user_data}")
+    
+    user_input = update.message.text # Mengambil input nomor dari pengguna
+    
+    if user_input == '0': # Jika pengguna mengetik 0 untuk kembali
+        logger.info("User chose to cancel (0).")
+        await update.message.reply_text("Dibatalkan, kembali ke menu utama.", reply_markup=keyboards.get_main_menu_keyboard())
+        context.user_data.clear()
+        return ROUTE # Mengakhiri konversasi dan kembali ke menu utama
+
+    if not user_input.isdigit(): # Jika input bukan angka
+        logger.info(f"Invalid input '{user_input}'. Not a digit.")
+        await update.message.reply_text("❌ Input tidak valid. Harap masukkan nomor akun yang valid atau `0` untuk kembali.")
+        return VMESS_SELECT_ACCOUNT # Tetap di state ini
+
+    selected_num = int(user_input)
+    accounts_list = context.user_data.get('vmess_accounts_list') # Mengambil daftar akun yang disimpan sebelumnya
+
+    if not accounts_list or selected_num <= 0 or selected_num > len(accounts_list): # Validasi nomor
+        logger.info(f"Invalid account number '{selected_num}'. Not in list or out of range.")
+        await update.message.reply_text("❌ Nomor akun tidak valid. Harap pilih nomor dari daftar.", reply_markup=keyboards.get_back_to_menu_keyboard())
+        return VMESS_SELECT_ACCOUNT # Tetap di state ini
+
+    selected_account = accounts_list[selected_num - 1] # Mendapatkan detail akun yang dipilih
+    username = selected_account['user']
+
+    await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk akun `{username}`...", parse_mode='Markdown')
+
     try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_vmess.sh', duration], capture_output=True, text=True, check=True, timeout=30)
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
+        # Panggil script untuk mendapatkan detail konfigurasi lengkap
+        # Asumsi: script log-create-<user>.log ada di /etc/vmess/akun/
+        config_log_path = f"/etc/vmess/akun/vmess-{username}.log" # Nama file log seperti di create_vmess_user.sh
+        
+        if not os.path.exists(config_log_path): # Cek apakah file log ada
+            logger.error(f"Config log file not found for user {username}: {config_log_path}")
+            await update.message.reply_text(
+                f"❌ File konfigurasi detail untuk akun `{username}` tidak ditemukan di `{config_log_path}`.\n"
+                "Harap buat akun ini ulang atau cek lokasi file log.", 
+                parse_mode='Markdown', 
+                reply_markup=keyboards.get_back_to_menu_keyboard()
+            )
+            context.user_data.clear()
+            return ROUTE
+
+        with open(config_log_path, 'r') as f:
+            config_content = f.read()
+
+        # Membersihkan kode warna ANSI dari konten file log jika ada
+        # Menggunakan subprocess.run dengan sed untuk membersihkan ANSI colors
+        cleaned_config_content = subprocess.run(
+            ['sed', 's/\x1B\[[0-9;]*m//g'], 
+            input=config_content, 
+            capture_output=True, 
+            text=True, 
+            check=True
+        ).stdout.strip()
+        
+        # Kirim konfigurasi lengkap ke pengguna
+        await update.message.reply_text(
+            f"Berikut adalah detail konfigurasi untuk akun `{username}`:\n\n"
+            f"```\n{cleaned_config_content}\n```", # Gunakan blok kode Markdown untuk config
+            parse_mode='Markdown',
+            reply_markup=keyboards.get_back_to_menu_keyboard() # Tombol kembali ke menu utama
+        )
+
     except Exception as e:
+        logger.error(f"Error showing config for user {username}.", exc_info=True)
         await handle_script_error(update, context, e)
-    context.user_data.clear()
-    return ROUTE
+    
+    context.user_data.clear() # Bersihkan user_data setelah selesai
+    return ROUTE # Kembali ke ROUTE utama setelah menampilkan config
 
 
 # --- VLESS Handlers ---
@@ -553,7 +659,7 @@ async def create_vless_trial_account(update: Update, context: ContextTypes.DEFAU
     if not duration.isdigit() or int(duration) <= 0:
         await update.message.reply_text("❌ Durasi harus berupa angka positif. Silakan coba lagi.")
         return TRIAL_CREATE_VLESS
-        
+
     await update.message.reply_text("⏳ Membuat akun Trial VLESS...")
     try:
         p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_vless.sh', duration], capture_output=True, text=True, check=True, timeout=30)
