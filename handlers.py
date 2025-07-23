@@ -1,5 +1,3 @@
-# /opt/hokage-bot/handlers.py
-
 import logging
 import subprocess
 import uuid 
@@ -51,7 +49,7 @@ VMESS_SELECT_ACCOUNT = chr(25)
 SSH_SELECT_ACCOUNT = chr(26) 
 
 # State baru untuk alur Renew VMESS
-RENEW_VMESS_GET_USERNAME, RENEW_VMESS_GET_DURATION = map(chr, range(27, 29)) # <--- State baru
+RENEW_VMESS_GET_USERNAME, RENEW_VMESS_GET_DURATION = map(chr, range(27, 29))
 # --- Akhir Definisi State ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -69,14 +67,12 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Menampilkan menu utama."""
     target_message = update.callback_query.message if update.callback_query else update.message
     if target_message:
-        # Check if the message can be edited (e.g., if it's a callback query)
         if update.callback_query and target_message.text:
             await target_message.edit_text(
                 "Please select from the menu below:",
                 reply_markup=keyboards.get_main_menu_keyboard()
             )
         else:
-            # If it's a new command or message, just send a new one
             await update.effective_chat.send_message(
                 "Please select from the menu below:",
                 reply_markup=keyboards.get_main_menu_keyboard()
@@ -92,23 +88,21 @@ async def handle_script_error(update: Update, context: ContextTypes.DEFAULT_TYPE
         msg = error_output or "Script failed with a non-zero exit code but no error output."
     elif isinstance(error, FileNotFoundError):
         msg = f"Script file not found ({error}). Please check the path and permissions. Make sure it's in /opt/hokage-bot/"
-    elif isinstance(error, TimeoutError): # Menambahkan penanganan Timeout
+    elif isinstance(error, TimeoutError):
         msg = "Script execution timed out. It took too long to respond."
     elif isinstance(error, ValueError) and "did not return a valid state" in str(error):
         msg = "Bot is currently in an unexpected state. Please use /cancel or /menu to reset."
 
-    # Tentukan di mana pesan error harus dikirim (pesan asli atau callback message)
     target_message = update.callback_query.message if update.callback_query else update.message
 
     if target_message:
         reply_markup = keyboards.get_back_to_menu_keyboard() if update.callback_query else keyboards.get_main_menu_keyboard()
         text_to_send = f"❌ **Operation Failed**\n\n**Reason:**\n`{msg}`"
         
-        # Coba edit pesan jika from callback query, jika tidak kirim pesan baru
-        if update.callback_query and target_message.text: # Hanya edit jika ada teks sebelumnya
+        if update.callback_query and target_message.text:
             try:
                 await target_message.edit_text(text_to_send, parse_mode='Markdown', reply_markup=reply_markup)
-            except Exception: # Fallback jika pesan tidak bisa diedit
+            except Exception:
                 await update.effective_chat.send_message(text_to_send, parse_mode='Markdown', reply_markup=reply_markup)
         else:
             await target_message.reply_text(text_to_send, parse_mode='Markdown', reply_markup=reply_markup)
@@ -119,7 +113,7 @@ async def handle_script_error(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Mengelola routing berdasarkan callback data dari keyboard."""
     query = update.callback_query
-    await query.answer() # Penting untuk menghilangkan loading di tombol
+    await query.answer()
     command = query.data
     user_id = update.effective_user.id
 
@@ -156,9 +150,9 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if command == "ssh_renew":
         await query.edit_message_text(text="➡️ Silakan masukkan <b>username</b> akun SSH yang ingin diperpanjang:", parse_mode='HTML')
         return RENEW_SSH_GET_USERNAME
-    elif command == "vmess_renew": # <--- Menangani tombol Renew VMESS
+    elif command == "vmess_renew":
         await query.edit_message_text(text="➡️ Silakan masukkan <b>username</b> akun VMESS yang ingin diperpanjang:", parse_mode='HTML')
-        return RENEW_VMESS_GET_USERNAME # <--- Mengarahkan ke state baru
+        return RENEW_VMESS_GET_USERNAME
 
     delete_starters = {
         "ssh_delete": ("SSH", DELETE_GET_USERNAME, "SSH username"),
@@ -185,10 +179,9 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text(f"➡️ Masukkan durasi (hari) untuk akun Trial {protocol_name}:")
         return state
 
-    # List/Config Handlers
-    if command == "ssh_list" or command == "ssh_config_user": # Menangani kedua tombol: "List Akun" dan "Config User"
+    if command == "ssh_list" or command == "ssh_config_user":
         await ssh_list_accounts(update, context) 
-        return SSH_SELECT_ACCOUNT # Mengarahkan ke alur interaktif SSH
+        return SSH_SELECT_ACCOUNT
     elif command == "vmess_list":
         await vmess_list_accounts(update, context)
         return VMESS_SELECT_ACCOUNT 
@@ -199,7 +192,6 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await trojan_list_accounts(update, context)
         return ROUTE
         
-    # Tools Menu Handlers (langsung eksekusi script atau konfirmasi)
     if command == "menu_running":
         await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/check_status_for_bot.sh'], "Status Layanan:")
         return ROUTE
@@ -209,16 +201,16 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     elif command == "menu_backup":
         await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/backup_for_bot.sh'], "Proses Backup:")
         return ROUTE
-    elif command == "confirm_restore": # Triggered by tools menu's "⬇️ Restore" button
-        context.user_data['action_to_confirm'] = 'restore' # Set flag
+    elif command == "confirm_restore":
+        context.user_data['action_to_confirm'] = 'restore'
         await query.edit_message_text(
             "⚠️ **PERINGATAN!**\n\nMelakukan restore akan menimpa konfigurasi yang ada.\n\nLanjutkan?",
             parse_mode='Markdown',
             reply_markup=keyboards.get_confirmation_keyboard()
         )
         return ROUTE 
-    elif command == "reboot_server": # Triggered by tools menu's "🔄 Reboot Server" button
-        context.user_data['action_to_confirm'] = 'reboot' # Set flag
+    elif command == "reboot_server":
+        context.user_data['action_to_confirm'] = 'reboot'
         await query.edit_message_text(
             "⚠️ **PERINGATAN!**\n\nServer akan reboot dan bot akan berhenti sementara. Lanjutkan?",
             parse_mode='Markdown',
@@ -229,8 +221,6 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/trial_cleanup.sh'], "Trial Cleanup:")
         return ROUTE
     
-    # Handle general confirmations for tools menu (confirm_proceed and cancel_action)
-    # This logic only applies if 'action_to_confirm' was set by a tools menu action.
     elif command in ["confirm_proceed", "cancel_action"]:
         action = context.user_data.pop('action_to_confirm', None)
         if command == "confirm_proceed":
@@ -239,29 +229,25 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             elif action == 'reboot':
                 await query.edit_message_text("⏳ Server akan reboot dalam beberapa detik...", reply_markup=keyboards.get_back_to_menu_keyboard())
                 try:
-                    subprocess.Popen(['sudo', 'reboot']) # Eksekusi reboot
+                    subprocess.Popen(['sudo', 'reboot'])
                 except Exception as e:
                     await handle_script_error(update, context, e)
             else:
                 await query.edit_message_text("Aksi konfirmasi tidak dikenal atau sudah kadaluarsa.", reply_markup=keyboards.get_back_to_menu_keyboard())
         elif command == "cancel_action":
             await query.edit_message_text("Operasi dibatalkan.", reply_markup=keyboards.get_back_to_menu_keyboard())
-        return ROUTE # Always return ROUTE after handling these confirmations
+        return ROUTE
 
     logger.warning(f"Unhandled callback query: {command} in route_handler.")
     await query.edit_message_text(f"Fitur {command} belum diimplementasikan atau tidak dikenal.", reply_markup=keyboards.get_back_to_menu_keyboard())
     return ROUTE
 
-
-# Helper function untuk menjalankan script dan membalas
 async def run_script_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, script_command: list, success_message: str):
     target_message = update.callback_query.message if update.callback_query else update.message
     
     if update.callback_query:
-        # await update.callback_query.answer() # Answered in route_handler
-        pass # Already answered
+        pass
     
-    # Send a processing message, try to edit if possible
     processing_text = "⏳ Sedang memproses, mohon tunggu..."
     if update.callback_query and target_message.text:
         try:
@@ -272,14 +258,13 @@ async def run_script_and_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         await target_message.reply_text(processing_text)
         
     try:
-        p = subprocess.run(script_command, capture_output=True, text=True, check=True, timeout=60) # Timeout 60 detik
+        p = subprocess.run(script_command, capture_output=True, text=True, check=True, timeout=60)
         output = p.stdout.strip()
         if output:
             response_text = f"✅ **{success_message}**\n\n`{output}`"
         else:
             response_text = f"✅ **{success_message}**\n\nOperasi selesai, tidak ada output spesifik."
             
-        # Try to edit the message, if fails send new
         if update.callback_query and target_message.text:
             try:
                 await target_message.edit_text(response_text, parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
@@ -290,7 +275,6 @@ async def run_script_and_reply(update: Update, context: ContextTypes.DEFAULT_TYP
 
     except Exception as e:
         await handle_script_error(update, context, e)
-
 
 # --- SSH Creation Handlers ---
 async def ssh_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -312,7 +296,7 @@ async def ssh_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     return SSH_GET_IP_LIMIT
 
 async def ssh_get_ip_limit_and_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if not update.message.text.isdigit() or int(update.message.text) < 1: # Limit IP minimal 1
+    if not update.message.text.isdigit() or int(update.message.text) < 1:
         await update.message.reply_text("❌ Limit IP harus berupa angka positif. Silakan coba lagi.")
         return SSH_GET_IP_LIMIT
     context.user_data['ip_limit'] = update.message.text
@@ -340,7 +324,7 @@ async def renew_ssh_get_username(update: Update, context: ContextTypes.DEFAULT_T
 async def renew_ssh_get_duration_and_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     duration = update.message.text
     username = context.user_data.get('renew_username')
-    admin_telegram_id = update.effective_user.id # ID pengguna yang menjalankan perintah
+    admin_telegram_id = update.effective_user.id
     
     if not duration.isdigit() or int(duration) <= 0:
         await update.message.reply_text("❌ Durasi harus berupa angka positif. Silakan coba lagi.")
@@ -356,7 +340,44 @@ async def renew_ssh_get_duration_and_execute(update: Update, context: ContextTyp
     context.user_data.clear()
     return ROUTE
 
-# --- SSH List Accounts (REVISI untuk interaktif) ---
+# --- VMESS Renew Handlers ---
+async def renew_vmess_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    username = update.message.text
+    context.user_data['renew_username'] = username
+    logger.info(f"VMESS Renewal Step 1: User {update.effective_user.id} entered username: {username}")
+    await update.message.reply_text(
+        f"✅ Username: <code>{username}</code>\n\n"
+        "➡️ Sekarang, masukkan <b>durasi</b> perpanjangan (misal: 30 untuk 30 hari).",
+        parse_mode='HTML'
+    )
+    return RENEW_VMESS_GET_DURATION
+
+async def renew_vmess_get_duration_and_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    duration = update.message.text
+    username = context.user_data.get('renew_username')
+    admin_telegram_id = update.effective_user.id
+    
+    if not duration.isdigit() or int(duration) <= 0:
+        await update.message.reply_text("❌ Durasi harus berupa angka positif. Silakan coba lagi.")
+        return RENEW_VMESS_GET_DURATION
+    
+    logger.info(f"VMESS Renewal Step 2: Duration: {duration} days for user: {username}")
+    await update.message.reply_text("⏳ Sedang memproses perpanjangan VMESS, mohon tunggu...")
+    try:
+        p = subprocess.run(
+            ['sudo', '/opt/hokage-bot/create_renew_vmess.sh', username, duration, str(admin_telegram_id)],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30
+        )
+        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
+    except Exception as e:
+        await handle_script_error(update, context, e)
+    context.user_data.clear()
+    return ROUTE
+
+# --- SSH List Accounts ---
 async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -366,16 +387,16 @@ async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         script_output = p.stdout.strip()
     except Exception as e:
         await handle_script_error(update, context, e)
-        return ROUTE # Kembali ke ROUTE jika ada error
+        return ROUTE
 
     if script_output == "NO_CLIENTS":
         await query.edit_message_text("ℹ️ *Belum ada akun SSH yang terdaftar di sistem.*", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
-        return ROUTE # Kembali ke ROUTE utama jika tidak ada klien
+        return ROUTE
     
     account_details = []
     output_lines = script_output.splitlines()
     for line in output_lines:
-        parts = line.split(' ', 2) # Pisahkan No, User, Expired
+        parts = line.split(' ', 2)
         if len(parts) == 3:
             account_details.append({
                 'num': parts[0],
@@ -383,7 +404,7 @@ async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 'exp': parts[2]
             })
     
-    context.user_data['ssh_accounts_list'] = account_details # Simpan daftar untuk langkah berikutnya
+    context.user_data['ssh_accounts_list'] = account_details
 
     list_text = "📋 *DAFTAR AKUN SSH*\n"
     list_text += "---------------------------------------------------\n"
@@ -398,10 +419,10 @@ async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     list_text += "---------------------------------------------------\n"
     list_text += f"📊 *Total:* `{len(account_details)}` akun.\n"
     list_text += "💡 *Tip:* Ketik nomor akun untuk melihat detail konfigurasi."
-    list_text += "\n\nKetik `0` untuk kembali." # Penting: Instruksi untuk mengetik nomor
+    list_text += "\n\nKetik `0` untuk kembali."
 
     await query.edit_message_text(list_text, parse_mode='Markdown')
-    return SSH_SELECT_ACCOUNT # <--- PENTING: Mengembalikan state ini agar bot menunggu input nomor
+    return SSH_SELECT_ACCOUNT
 
 async def ssh_select_account_and_show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_input = update.message.text
@@ -478,11 +499,6 @@ async def create_ssh_trial_account(update: Update, context: ContextTypes.DEFAULT
     if not duration.isdigit() or int(duration) <= 0:
         await update.message.reply_text("❌ Durasi harus berupa angka positif. Silakan coba lagi.")
         return TRIAL_CREATE_SSH
-    
-    # Anda mungkin ingin username acak untuk trial, atau script Anda yang menanganinya
-    # Jika script Anda memerlukan username, Anda bisa generate di sini:
-    # trial_username = f"trial_ssh_{uuid.uuid4().hex[:8]}" 
-    # Kemudian pass trial_username ke script.
     
     await update.message.reply_text("⏳ Membuat akun Trial SSH...")
     try:
@@ -636,15 +652,10 @@ async def create_vmess_trial_account(update: Update, context: ContextTypes.DEFAU
         await update.message.reply_text("❌ Durasi harus berupa angka positif. Silakan coba lagi.")
         return TRIAL_CREATE_VMESS
 
-    # trial_username = f"trial-vmess-{uuid.uuid4().hex[:8]}" # Jika Anda ingin Python menghasilkan username
-    
     await update.message.reply_text("⏳ Membuat akun Trial VMESS...")
     try:
-        # Sesuaikan argumen script create_trial_vmess.sh Anda.
-        # Jika script Anda butuh username dari Python, tambahkan trial_username di sini.
         p = subprocess.run(
-            ['sudo', '/opt/hokage-bot/create_trial_vmess.sh', duration], # Jika script generate username sendiri
-            # atau ['sudo', '/opt/hokage-bot/create_trial_vmess.sh', trial_username, duration], # Jika script butuh username
+            ['sudo', '/opt/hokage-bot/create_trial_vmess.sh', duration],
             capture_output=True, 
             text=True, 
             check=True, 
@@ -652,12 +663,11 @@ async def create_vmess_trial_account(update: Update, context: ContextTypes.DEFAU
         )
         
         output_lines = p.stdout.strip().split('\n')
-        # Contoh formatting output dari script shell
         formatted_output = "\n".join(f"🔹 {line}" for line in output_lines)
         
         await update.message.reply_text(
             f"✅ <b>Akun Trial VMESS Berhasil Dibuat</b>\n\n"
-            f"{formatted_output}\n\n" # Output dari script
+            f"{formatted_output}\n\n"
             f"⏳ <i>Masa aktif: {duration} hari</i>",
             parse_mode='HTML',
             reply_markup=keyboards.get_back_to_menu_keyboard()
@@ -745,7 +755,6 @@ async def create_vless_trial_account(update: Update, context: ContextTypes.DEFAU
         await handle_script_error(update, context, e)
     context.user_data.clear()
     return ROUTE
-
 
 # --- TROJAN Handlers ---
 async def trojan_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
