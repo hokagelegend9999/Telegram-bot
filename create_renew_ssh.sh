@@ -9,7 +9,8 @@
 # ========================================================
 
 # Configuration
-SSH_DB="/etc/ssh/.ssh.db"
+SSH_DB_SOURCE="/etc/xray/ssh" # <--- Sumber utama daftar SSH (sama dengan list_ssh_users.sh)
+SSH_LOG_DIR="/etc/xray/sshx/akun" # <--- Direktori log config user SSH (dari cekconfig Anda)
 LOG_FILE="/var/log/ssh_renew.log"
 DOMAIN=$(cat /etc/xray/domain)
 IP=$(curl -sS ipv4.icanhazip.com)
@@ -27,8 +28,8 @@ ADMIN_ID="$3"
 
 # --- Validation Functions ---
 validate_username() {
-    if ! grep -q "^#ssh# $USERNAME " "$SSH_DB"; then
-        echo "❌ Error: User $USERNAME not found in database"
+    if ! grep -q "^### $USERNAME " "$SSH_DB_SOURCE"; then
+        echo "❌ Error: User $USERNAME not found in SSH accounts list."
         exit 1
     fi
 }
@@ -42,23 +43,26 @@ validate_days() {
 
 # --- Renewal Function ---
 renew_ssh() {
-    # Get current expiration
-    current_exp=$(grep "^#ssh# $USERNAME " "$SSH_DB" | awk '{print $6,$7,$8}')
+    user_line=$(grep "^### $USERNAME " "$SSH_DB_SOURCE")
     
-    # Calculate new expiration date
-    new_exp=$(date -d "$current_exp + $DAYS days" +"%d %b, %Y")
-    new_exp_system=$(date -d "$new_exp" +"%Y-%m-%d")
+    if [ -z "$user_line" ]; then
+        echo "❌ Error: User $USERNAME not found in SSH accounts list during renewal."
+        exit 1
+    fi
+
+    current_exp_date_raw=$(echo "$user_line" | awk '{print $3}')
     
-    # Update database
-    sed -i "/^#ssh# $USERNAME /d" "$SSH_DB"
-    grep "^#ssh# $USERNAME " "$SSH_DB" | \
-        awk -v exp="$new_exp" '{$6=$7=$8=""; print $0 exp}' >> "$SSH_DB"
-    
-    # Update system account
+    new_exp_system=$(date -d "$current_exp_date_raw + $DAYS days" +"%Y-%m-%d")
+    new_exp_display=$(date -d "$current_exp_date_raw + $DAYS days" +"%d %b, %Y")
+
+    # Update entri di SSH_DB_SOURCE (mengganti seluruh baris)
+    sed -i "s|^### $USERNAME .*|### $USERNAME $new_exp_system|" "$SSH_DB_SOURCE"
+
+    # Update system account (ini penting agar akun tidak expired di OS)
     usermod -e "$new_exp_system" "$USERNAME"
-    
+
     # Log the action
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Renewed $USERNAME for $DAYS days by $ADMIN_ID" >> "$LOG_FILE"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Renewed $USERNAME for $DAYS days (new expiry: $new_exp_system) by Admin ID: $ADMIN_ID" >> "$LOG_FILE"
 }
 
 # --- Main Execution ---
@@ -66,12 +70,11 @@ validate_username
 validate_days
 
 if renew_ssh; then
-    # Prepare output message
     echo "✅ <b>SSH ACCOUNT RENEWED</b>"
     echo "============================"
     echo "<b>Username:</b> <code>$USERNAME</code>"
     echo "<b>Days Added:</b> $DAYS"
-    echo "<b>New Expiry:</b> $new_exp"
+    echo "<b>New Expiry:</b> $new_exp_display"
     echo "============================"
     echo "<b>Server Info:</b>"
     echo "<b>IP:</b> $IP"
@@ -82,7 +85,7 @@ else
     echo "❌ <b>RENEWAL FAILED</b>"
     echo "============================"
     echo "<b>Username:</b> <code>$USERNAME</code>"
-    echo "<b>Error:</b> Unknown error occurred"
+    echo "<b>Error:</b> An unknown error occurred during renewal."
     exit 1
 fi
 
