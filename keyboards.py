@@ -17,12 +17,15 @@ def get_ssh_menu_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🔄 Perpanjang Akun", callback_data="ssh_renew")],
         [InlineKeyboardButton("🎁 Akun Trial", callback_data="ssh_trial")],
         [InlineKeyboardButton("🗑️ Hapus Akun", callback_data="ssh_delete")],
-        [InlineKeyboardButton("📋 List Akun", callback_data="ssh_list")],
+        # Tombol yang sudah ada untuk List Akun (akan jadi interaktif)
+        [InlineKeyboardButton("📋 List Akun", callback_data="ssh_list")], 
+        # Tombol baru untuk Config User (akan mengarah ke alur list interaktif)
+        [InlineKeyboardButton("🔍 Config User", callback_data="ssh_config_user")], # <--- TOMBOL BARU
         [InlineKeyboardButton("⬅️ Kembali", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_vmess_menu_keyboard() -> InlineKeyboardMarkup: # <-- Baru
+def get_vmess_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("➕ Buat Akun Baru", callback_data="vmess_add")],
         [InlineKeyboardButton("🎁 Akun Trial", callback_data="vmess_trial")],
@@ -32,7 +35,7 @@ def get_vmess_menu_keyboard() -> InlineKeyboardMarkup: # <-- Baru
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_vless_menu_keyboard() -> InlineKeyboardMarkup: # <-- Baru
+def get_vless_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("➕ Buat Akun Baru", callback_data="vless_add")],
         [InlineKeyboardButton("🎁 Akun Trial", callback_data="vless_trial")],
@@ -42,7 +45,7 @@ def get_vless_menu_keyboard() -> InlineKeyboardMarkup: # <-- Baru
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_trojan_menu_keyboard() -> InlineKeyboardMarkup: # <-- Baru
+def get_trojan_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("➕ Buat Akun Baru", callback_data="trojan_add")],
         [InlineKeyboardButton("🎁 Akun Trial", callback_data="trojan_trial")],
@@ -52,14 +55,14 @@ def get_trojan_menu_keyboard() -> InlineKeyboardMarkup: # <-- Baru
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_tools_menu_keyboard() -> InlineKeyboardMarkup: # <-- Baru
+def get_tools_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
-        [InlineKeyboardButton("🟢 Cek Status", callback_data="menu_running")], # Pakai check_status_for_bot.sh
-        [InlineKeyboardButton("🔄 Restart Layanan", callback_data="menu_restart")], # Pakai restart_for_bot.sh
-        [InlineKeyboardButton("☁️ Backup", callback_data="menu_backup")], # Pakai backup_for_bot.sh
-        [InlineKeyboardButton("⬇️ Restore", callback_data="confirm_restore")], # Pakai restore_for_bot.sh
-        [InlineKeyboardButton("🗑️ Trial Cleanup", callback_data="trial_cleanup")], # Pakai trial_cleanup.sh
-        [InlineKeyboardButton("🔄 Reboot Server", callback_data="reboot_server")], # Perlu implementasi handler untuk ini
+        [InlineKeyboardButton("🟢 Cek Status", callback_data="menu_running")],
+        [InlineKeyboardButton("🔄 Restart Layanan", callback_data="menu_restart")],
+        [InlineKeyboardButton("☁️ Backup", callback_data="menu_backup")],
+        [InlineKeyboardButton("⬇️ Restore", callback_data="confirm_restore")],
+        [InlineKeyboardButton("🗑️ Trial Cleanup", callback_data="trial_cleanup")],
+        [InlineKeyboardButton("🔄 Reboot Server", callback_data="reboot_server")],
         [InlineKeyboardButton("⬅️ Kembali", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
