@@ -1,5 +1,3 @@
-# /opt/hokage-bot/keyboards.py
-
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
@@ -28,8 +26,8 @@ def get_vmess_menu_keyboard() -> InlineKeyboardMarkup: # <-- Baru
     keyboard = [
         [InlineKeyboardButton("➕ Buat Akun Baru", callback_data="vmess_add")],
         [InlineKeyboardButton("🎁 Akun Trial", callback_data="vmess_trial")],
-        [InlineKeyboardButton("🗑️ Hapus Akun", callback_data="vmess_delete")], # Perlu implementasi handler untuk ini
-        [InlineKeyboardButton("📋 List Akun", callback_data="vmess_list")], # Perlu implementasi handler untuk ini
+        [InlineKeyboardButton("🗑️ Hapus Akun", callback_data="vmess_delete")],
+        [InlineKeyboardButton("📋 List Akun", callback_data="vmess_list")],
         [InlineKeyboardButton("⬅️ Kembali", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -38,8 +36,8 @@ def get_vless_menu_keyboard() -> InlineKeyboardMarkup: # <-- Baru
     keyboard = [
         [InlineKeyboardButton("➕ Buat Akun Baru", callback_data="vless_add")],
         [InlineKeyboardButton("🎁 Akun Trial", callback_data="vless_trial")],
-        [InlineKeyboardButton("🗑️ Hapus Akun", callback_data="vless_delete")], # Perlu implementasi handler untuk ini
-        [InlineKeyboardButton("📋 List Akun", callback_data="vless_list")], # Perlu implementasi handler untuk ini
+        [InlineKeyboardButton("🗑️ Hapus Akun", callback_data="vless_delete")],
+        [InlineKeyboardButton("📋 List Akun", callback_data="vless_list")],
         [InlineKeyboardButton("⬅️ Kembali", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -48,8 +46,8 @@ def get_trojan_menu_keyboard() -> InlineKeyboardMarkup: # <-- Baru
     keyboard = [
         [InlineKeyboardButton("➕ Buat Akun Baru", callback_data="trojan_add")],
         [InlineKeyboardButton("🎁 Akun Trial", callback_data="trojan_trial")],
-        [InlineKeyboardButton("🗑️ Hapus Akun", callback_data="trojan_delete")], # Perlu implementasi handler untuk ini
-        [InlineKeyboardButton("📋 List Akun", callback_data="trojan_list")], # Perlu implementasi handler untuk ini
+        [InlineKeyboardButton("🗑️ Hapus Akun", callback_data="trojan_delete")],
+        [InlineKeyboardButton("📋 List Akun", callback_data="trojan_list")],
         [InlineKeyboardButton("⬅️ Kembali", callback_data="main_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
