@@ -2,8 +2,8 @@
 
 import logging
 import subprocess
-import uuid # Untuk menghasilkan UUID unik jika diperlukan untuk username trial
-import os   # Untuk mengecek keberadaan file log konfigurasi
+import uuid 
+import os   
 
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
@@ -21,7 +21,6 @@ import database
 logger = logging.getLogger(__name__)
 
 # --- Definisi State (LENGKAP) ---
-# ROUTE adalah state default saat bot tidak dalam percakapan khusus
 ROUTE = chr(0)
 
 # SSH States
@@ -36,7 +35,7 @@ VLESS_GET_USER, VLESS_GET_DURATION, VLESS_GET_IP_LIMIT, VLESS_GET_QUOTA = map(ch
 # TROJAN States
 TROJAN_GET_USER, TROJAN_GET_DURATION, TROJAN_GET_IP_LIMIT, TROJAN_GET_QUOTA = map(chr, range(11, 15))
 
-# State baru untuk alur Renew SSH
+# State untuk alur Renew SSH
 RENEW_SSH_GET_USERNAME, RENEW_SSH_GET_DURATION = map(chr, range(15, 17))
 
 # State untuk pembuatan akun Trial (terpisah per jenis)
@@ -45,11 +44,14 @@ TRIAL_CREATE_SSH, TRIAL_CREATE_VMESS, TRIAL_CREATE_VLESS, TRIAL_CREATE_TROJAN = 
 # State untuk penghapusan akun
 DELETE_GET_USERNAME, DELETE_CONFIRMATION = map(chr, range(22, 24))
 
-# State baru untuk alur list & view config VMESS
+# State untuk alur list & view config VMESS
 VMESS_SELECT_ACCOUNT = chr(25)
 
-# State baru untuk alur list & view config SSH
+# State untuk alur list & view config SSH
 SSH_SELECT_ACCOUNT = chr(26) 
+
+# State baru untuk alur Renew VMESS
+RENEW_VMESS_GET_USERNAME, RENEW_VMESS_GET_DURATION = map(chr, range(27, 29)) # <--- State baru
 # --- Akhir Definisi State ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -154,8 +156,10 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if command == "ssh_renew":
         await query.edit_message_text(text="➡️ Silakan masukkan <b>username</b> akun SSH yang ingin diperpanjang:", parse_mode='HTML')
         return RENEW_SSH_GET_USERNAME
-        
-    # Delete Handlers (memulai konversasi delete)
+    elif command == "vmess_renew": # <--- Menangani tombol Renew VMESS
+        await query.edit_message_text(text="➡️ Silakan masukkan <b>username</b> akun VMESS yang ingin diperpanjang:", parse_mode='HTML')
+        return RENEW_VMESS_GET_USERNAME # <--- Mengarahkan ke state baru
+
     delete_starters = {
         "ssh_delete": ("SSH", DELETE_GET_USERNAME, "SSH username"),
         "vmess_delete": ("VMESS", DELETE_GET_USERNAME, "VMESS username"),
@@ -336,9 +340,7 @@ async def renew_ssh_get_username(update: Update, context: ContextTypes.DEFAULT_T
 async def renew_ssh_get_duration_and_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     duration = update.message.text
     username = context.user_data.get('renew_username')
-    
-    # Dapatkan ID Telegram pengguna yang menjalankan perintah
-    admin_telegram_id = update.effective_user.id 
+    admin_telegram_id = update.effective_user.id # ID pengguna yang menjalankan perintah
     
     if not duration.isdigit() or int(duration) <= 0:
         await update.message.reply_text("❌ Durasi harus berupa angka positif. Silakan coba lagi.")
@@ -347,8 +349,7 @@ async def renew_ssh_get_duration_and_execute(update: Update, context: ContextTyp
     logger.info(f"Renewal Step 2: Duration: {duration} days for user: {username}")
     await update.message.reply_text("⏳ Sedang memproses perpanjangan, mohon tunggu...")
     try:
-        # Tambahkan admin_telegram_id sebagai argumen ketiga
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_renew_ssh.sh', username, duration, str(admin_telegram_id)], capture_output=True, text=True, check=True, timeout=30) # <--- Perbaikan di sini
+        p = subprocess.run(['sudo', '/opt/hokage-bot/create_renew_ssh.sh', username, duration, str(admin_telegram_id)], capture_output=True, text=True, check=True, timeout=30)
         await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
     except Exception as e:
         await handle_script_error(update, context, e)
@@ -390,8 +391,8 @@ async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     list_text += "---------------------------------------------------\n"
 
     for acc in account_details:
-        printf_user = "{:<18}".format(acc['user']) # Padding untuk username
-        printf_exp = "{:<20}".format(acc['exp'])   # Padding untuk expired date
+        printf_user = "{:<18}".format(acc['user'])
+        printf_exp = "{:<20}".format(acc['exp'])
         list_text += f"{acc['num']:<3} | `{printf_user}` | `{printf_exp}`\n"
     
     list_text += "---------------------------------------------------\n"
@@ -430,6 +431,7 @@ async def ssh_select_account_and_show_config(update: Update, context: ContextTyp
         config_log_path = f"/etc/xray/sshx/akun/log-create-{username}.log"
         
         if not os.path.exists(config_log_path):
+            logger.error(f"Config log file not found for SSH user {username}: {config_log_path}")
             await update.message.reply_text(
                 f"❌ File konfigurasi detail untuk akun SSH `{username}` tidak ditemukan di `{config_log_path}`.\n"
                 "Harap buat akun ini ulang atau cek lokasi file log.", 
@@ -586,6 +588,7 @@ async def vmess_select_account_and_show_config(update: Update, context: ContextT
         config_log_path = f"/etc/vmess/akun/vmess-{username}.log"
         
         if not os.path.exists(config_log_path):
+            logger.error(f"Config log file not found for user {username}: {config_log_path}")
             await update.message.reply_text(
                 f"❌ File konfigurasi detail untuk akun `{username}` tidak ditemukan di `{config_log_path}`.\n"
                 "Harap buat akun ini ulang atau cek lokasi file log.", 
