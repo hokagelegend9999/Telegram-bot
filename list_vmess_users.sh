@@ -1,35 +1,34 @@
 #!/bin/bash
 # Script: list_vmess_users.sh
-# Deskripsi: Mengambil daftar akun VMESS dari /etc/xray/config.json
-#            Berdasarkan metode penyimpanan #vmg username expiry_date
-# Output: Daftar akun dalam format yang mudah diparsing (No, User, Expired)
+# Menampilkan daftar akun VMESS dari config.json dengan format elegan
 
 CONFIG_FILE="/etc/xray/config.json"
-
-# Fungsi untuk menghapus kode warna ANSI
-strip_ansi_colors() {
-    sed 's/\x1B\[[0-9;]*m//g'
-}
+export LANG=en_US.UTF-8
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "ERROR: File konfigurasi XRay/V2Ray tidak ditemukan: $CONFIG_FILE" >&2
+    echo -e "🚫 *File konfigurasi tidak ditemukan:* \`$CONFIG_FILE\`"
     exit 1
 fi
 
-# Hitung jumlah klien VMESS
 NUMBER_OF_CLIENTS=$(grep -c -E "^#vmg " "$CONFIG_FILE")
 
 if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
-    echo "NO_CLIENTS" # Tanda khusus jika tidak ada klien
+    echo -e "🚫 *Tidak ada akun VMESS yang aktif*"
 else
-    # Menggunakan awk untuk mengekstrak username dan expired date,
-    # lalu nl untuk menambahkan nomor baris.
-    # Output: "1 user1 2025-12-31"
-    grep -E "^#vmg " "$CONFIG_FILE" | awk '{print $2, $3}' | nl -w1 -s ' ' | while read -r num user exp_date; do
-        user_clean=$(echo "$user" | strip_ansi_colors)
-        exp_date_clean=$(echo "$exp_date" | strip_ansi_colors)
-        echo "$num $user_clean $exp_date_clean"
+    echo -e "🚀 *D A F T A R  A K U N  V M E S S*"
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "〄  *USER*             *EXPIRED*"
+    echo -e "―――――――――――――――――――――――――――――"
+
+    # List user dari config.json
+    grep -E "^#vmg " "$CONFIG_FILE" | nl -w1 -s ' ' | while read -r num line; do
+        user=$(echo "$line" | awk '{print $2}')
+        exp=$(echo "$line" | awk '{print $3}')
+        printf "👤 %-15s ⏳ %s\n" "$user" "$exp"
     done
+
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "📊 *Total Akun*: *$NUMBER_OF_CLIENTS*"
 fi
 
 exit 0
