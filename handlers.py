@@ -20,7 +20,7 @@ import database
 
 logger = logging.getLogger(__name__)
 
-# --- Fungsi Helper Baru ---
+# --- Fungsi Helper ---
 def escape_markdown_v2(text: str) -> str:
     """Meng-escape karakter spesial untuk MarkdownV2 agar aman dikirim."""
     if not isinstance(text, str):
@@ -28,7 +28,7 @@ def escape_markdown_v2(text: str) -> str:
     escape_chars = r'\_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
-# --- Definisi State (LENGKAP) ---
+# --- Definisi State ---
 ROUTE = chr(0)
 SSH_GET_USERNAME, SSH_GET_PASSWORD, SSH_GET_DURATION, SSH_GET_IP_LIMIT = map(chr, range(1, 5))
 VMESS_GET_USER, VMESS_GET_DURATION = map(chr, range(5, 7))
@@ -40,6 +40,7 @@ DELETE_GET_USERNAME, DELETE_CONFIRMATION = map(chr, range(22, 24))
 VMESS_SELECT_ACCOUNT = chr(25)
 SSH_SELECT_ACCOUNT = chr(26)
 RENEW_VMESS_GET_USERNAME, RENEW_VMESS_GET_DURATION = map(chr, range(27, 29))
+RESTORE_WAIT_FILE, RESTORE_CONFIRM = map(chr, range(30, 32))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
@@ -95,7 +96,84 @@ async def handle_script_error(update: Update, context: ContextTypes.DEFAULT_TYPE
     logger.error(f"Script execution error: {msg}", exc_info=True)
     return ROUTE
 
-# --- FUNGSI BARU UNTUK BACKUP ---
+# --- FUNGSI-FUNGSI BARU UNTUK ALUR RESTORE ---
+async def start_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "Silakan unggah file backup Anda (`.zip`).\n\n"
+        "⚠️ *Peringatan:* Proses ini akan menimpa semua konfigurasi yang ada. "
+        "Ketik /cancel untuk membatalkan kapan saja.",
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+    return RESTORE_WAIT_FILE
+
+async def receive_restore_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    document = update.message.document
+    if not document or not document.file_name.endswith('.zip'):
+        await update.message.reply_text("❌ File tidak valid. Harap unggah file `.zip`.")
+        return RESTORE_WAIT_FILE
+
+    await update.message.reply_text("⏳ Mengunduh file backup...")
+    
+    file = await document.get_file()
+    file_path = f"/root/{document.file_name}"
+    await file.download_to_drive(file_path)
+    
+    context.user_data['restore_file_path'] = file_path
+    
+    safe_filename = escape_markdown_v2(document.file_name)
+    await update.message.reply_text(
+        f"✅ File `{safe_filename}` berhasil diunggah.\n\n"
+        "⚠️ *PERINGATAN TERAKHIR\\!* \n"
+        "Melanjutkan akan menghapus semua data pengguna dan konfigurasi saat ini, "
+        "lalu menggantinya dengan data dari file backup.\n\n"
+        "*Apakah Anda benar-benar yakin ingin melanjutkan?*",
+        reply_markup=keyboards.get_restore_confirmation_keyboard(),
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+    return RESTORE_CONFIRM
+
+async def execute_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    
+    file_path = context.user_data.get('restore_file_path')
+    
+    if query.data == "cancel_restore_action":
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+        await query.edit_message_text("❌ Restore dibatalkan. File yang diunggah telah dihapus.", reply_markup=keyboards.get_back_to_menu_keyboard())
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if not file_path or not os.path.exists(file_path):
+        await query.edit_message_text("❌ Terjadi error: Path file backup tidak ditemukan. Silakan ulangi dari awal.", reply_markup=keyboards.get_back_to_menu_keyboard())
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    await query.edit_message_text("⏳ Memulai proses restore, ini mungkin memakan waktu beberapa saat...")
+    
+    try:
+        p = subprocess.run(
+            ['sudo', '/opt/hokage-bot/restore_for_bot.sh', file_path],
+            capture_output=True, text=True, check=True, timeout=300
+        )
+        safe_output = escape_markdown_v2(p.stdout.strip())
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"```\n{safe_output}\n```",
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=keyboards.get_back_to_menu_keyboard()
+        )
+    except Exception as e:
+        await handle_script_error(update, context, e)
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+            
+    context.user_data.clear()
+    return ConversationHandler.END
+
 async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -110,7 +188,7 @@ async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             capture_output=True,
             text=True,
             check=True,
-            timeout=600 # Timeout 10 menit
+            timeout=600
         )
         
         script_output = process.stdout
@@ -187,10 +265,10 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return state
 
     if command == "ssh_renew":
-        await query.edit_message_text(text="➡️ Silakan masukkan <b>username</b> akun SSH yang ingin diperpanjang:", parse_mode='HTML')
+        await query.edit_message_text(text="➡️ Silakan masukkan *username* akun SSH yang ingin diperpanjang:", parse_mode=ParseMode.MARKDOWN_V2)
         return RENEW_SSH_GET_USERNAME
     elif command == "vmess_renew":
-        await query.edit_message_text(text="➡️ Silakan masukkan <b>username</b> akun VMESS yang ingin diperpanjang:", parse_mode='HTML')
+        await query.edit_message_text(text="➡️ Silakan masukkan *username* akun VMESS yang ingin diperpanjang:", parse_mode=ParseMode.MARKDOWN_V2)
         return RENEW_VMESS_GET_USERNAME
 
     delete_starters = {
@@ -202,7 +280,8 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if command in delete_starters:
         protocol, state, prompt_text = delete_starters[command]
         context.user_data['delete_protocol'] = protocol
-        await query.edit_message_text(f"➡️ Masukkan <b>{prompt_text}</b> akun yang ingin dihapus:", parse_mode='HTML')
+        safe_prompt = escape_markdown_v2(prompt_text)
+        await query.edit_message_text(f"➡️ Masukkan *{safe_prompt}* akun yang ingin dihapus:", parse_mode=ParseMode.MARKDOWN_V2)
         return state
 
     trial_starters = {
@@ -235,19 +314,11 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     elif command == "menu_restart":
         await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/restart_for_bot.sh'], "Restart Layanan:")
         return ROUTE
-    elif command == "confirm_restore":
-        context.user_data['action_to_confirm'] = 'restore'
-        await query.edit_message_text(
-            "⚠️ **PERINGATAN!**\n\nMelakukan restore akan menimpa konfigurasi yang ada.\n\nLanjutkan?",
-            parse_mode='Markdown',
-            reply_markup=keyboards.get_confirmation_keyboard()
-        )
-        return ROUTE
     elif command == "reboot_server":
         context.user_data['action_to_confirm'] = 'reboot'
         await query.edit_message_text(
-            "⚠️ **PERINGATAN!**\n\nServer akan reboot dan bot akan berhenti sementara. Lanjutkan?",
-            parse_mode='Markdown',
+            "⚠️ *PERINGATAN\\!* \n\nServer akan reboot dan bot akan berhenti sementara\\. Lanjutkan?",
+            parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_confirmation_keyboard()
         )
         return ROUTE
@@ -258,9 +329,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     elif command in ["confirm_proceed", "cancel_action"]:
         action = context.user_data.pop('action_to_confirm', None)
         if command == "confirm_proceed":
-            if action == 'restore':
-                await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/restore_for_bot.sh'], "Proses Restore:")
-            elif action == 'reboot':
+            if action == 'reboot':
                 await query.edit_message_text("⏳ Server akan reboot dalam beberapa detik...", reply_markup=keyboards.get_back_to_menu_keyboard())
                 try:
                     subprocess.Popen(['sudo', 'reboot'])
@@ -273,7 +342,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ROUTE
 
     logger.warning(f"Unhandled callback query: {command} in route_handler.")
-    await query.edit_message_text(f"Fitur {command} belum diimplementasikan atau tidak dikenal.", reply_markup=keyboards.get_back_to_menu_keyboard())
+    await query.edit_message_text(f"Fitur `{escape_markdown_v2(command)}` belum diimplementasikan atau tidak dikenal.", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboards.get_back_to_menu_keyboard())
     return ROUTE
 
 async def run_script_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, script_command: list, success_message: str):
@@ -313,6 +382,15 @@ async def run_script_and_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         await handle_script_error(update, context, e)
 
 # --- SSH Creation Handlers ---
+async def send_script_output(update: Update, context: ContextTypes.DEFAULT_TYPE, script_command: list):
+    """Fungsi helper untuk menjalankan skrip dan mengirim outputnya sebagai blok kode."""
+    try:
+        p = subprocess.run(script_command, capture_output=True, text=True, check=True, timeout=30)
+        safe_output = escape_markdown_v2(p.stdout.strip())
+        await update.message.reply_text(f"```\n{safe_output}\n```", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboards.get_back_to_menu_keyboard())
+    except Exception as e:
+        await handle_script_error(update, context, e)
+
 async def ssh_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['username'] = update.message.text
     await update.message.reply_text("➡️ Masukkan Password:")
@@ -338,21 +416,18 @@ async def ssh_get_ip_limit_and_create(update: Update, context: ContextTypes.DEFA
     context.user_data['ip_limit'] = update.message.text
     await update.message.reply_text("⏳ Membuat akun SSH...")
     ud = context.user_data
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_ssh.sh', ud['username'], ud['password'], ud['duration'], ud['ip_limit']], capture_output=True, text=True, check=True, timeout=30)
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_ssh.sh', ud['username'], ud['password'], ud['duration'], ud['ip_limit']])
     context.user_data.clear()
     return ROUTE
 
 async def renew_ssh_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     username = update.message.text
     context.user_data['renew_username'] = username
+    safe_username = escape_markdown_v2(username)
     await update.message.reply_text(
-        f"✅ Username: <code>{username}</code>\n\n"
-        "➡️ Sekarang, masukkan <b>durasi</b> perpanjangan (misal: 30 untuk 30 hari).",
-        parse_mode='HTML'
+        f"✅ Username: `{safe_username}`\n\n"
+        "➡️ Sekarang, masukkan *durasi* perpanjangan (misal: 30 untuk 30 hari).",
+        parse_mode=ParseMode.MARKDOWN_V2
     )
     return RENEW_SSH_GET_DURATION
 
@@ -363,11 +438,7 @@ async def renew_ssh_get_duration_and_execute(update: Update, context: ContextTyp
         await update.message.reply_text("❌ Durasi harus berupa angka positif. Silakan coba lagi.")
         return RENEW_SSH_GET_DURATION
     await update.message.reply_text("⏳ Sedang memproses perpanjangan, mohon tunggu...")
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_renew_ssh.sh', username, duration, str(update.effective_user.id)], capture_output=True, text=True, check=True, timeout=30)
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_renew_ssh.sh', username, duration, str(update.effective_user.id)])
     context.user_data.clear()
     return ROUTE
 
@@ -375,10 +446,11 @@ async def renew_ssh_get_duration_and_execute(update: Update, context: ContextTyp
 async def renew_vmess_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     username = update.message.text
     context.user_data['renew_username'] = username
+    safe_username = escape_markdown_v2(username)
     await update.message.reply_text(
-        f"✅ Username: <code>{username}</code>\n\n"
-        "➡️ Sekarang, masukkan <b>durasi</b> perpanjangan (misal: 30 untuk 30 hari).",
-        parse_mode='HTML'
+        f"✅ Username: `{safe_username}`\n\n"
+        "➡️ Sekarang, masukkan *durasi* perpanjangan (misal: 30 untuk 30 hari).",
+        parse_mode=ParseMode.MARKDOWN_V2
     )
     return RENEW_VMESS_GET_DURATION
 
@@ -389,14 +461,7 @@ async def renew_vmess_get_duration_and_execute(update: Update, context: ContextT
         await update.message.reply_text("❌ Durasi harus berupa angka positif. Silakan coba lagi.")
         return RENEW_VMESS_GET_DURATION
     await update.message.reply_text("⏳ Sedang memproses perpanjangan VMESS, mohon tunggu...")
-    try:
-        p = subprocess.run(
-            ['sudo', '/opt/hokage-bot/create_renew_vmess.sh', username, duration, str(update.effective_user.id)],
-            capture_output=True, text=True, check=True, timeout=30
-        )
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_renew_vmess.sh', username, duration, str(update.effective_user.id)])
     context.user_data.clear()
     return ROUTE
 
@@ -410,20 +475,12 @@ async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     except Exception as e:
         await handle_script_error(update, context, e)
         return ROUTE
-    if script_output == "NO_CLIENTS":
-        await query.edit_message_text("ℹ️ *Belum ada akun SSH yang terdaftar di sistem.*", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
+    if "NO_CLIENTS" in script_output:
+        await query.edit_message_text("ℹ️ Belum ada akun SSH yang terdaftar di sistem.", reply_markup=keyboards.get_back_to_menu_keyboard())
         return ROUTE
-    account_details = []
-    for line in script_output.splitlines():
-        parts = line.split(' ', 2)
-        if len(parts) == 3:
-            account_details.append({'num': parts[0], 'user': parts[1], 'exp': parts[2]})
-    context.user_data['ssh_accounts_list'] = account_details
-    list_text = "📋 *DAFTAR AKUN SSH*\n" + "-"*40 + "\n*No* | *Username* | *Expired*\n" + "-"*40 + "\n"
-    for acc in account_details:
-        list_text += f"{acc['num']:<3} | `{acc['user']:<18}` | `{acc['exp']:<20}`\n"
-    list_text += "-"*40 + f"\n📊 *Total:* `{len(account_details)}` akun.\n💡 *Tip:* Ketik nomor akun untuk detail."
-    await query.edit_message_text(list_text, parse_mode='Markdown')
+    
+    safe_output = escape_markdown_v2(script_output)
+    await query.edit_message_text(f"```\n{safe_output}\n```", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboards.get_back_to_menu_keyboard())
     return SSH_SELECT_ACCOUNT
 
 async def ssh_select_account_and_show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -432,27 +489,10 @@ async def ssh_select_account_and_show_config(update: Update, context: ContextTyp
         await update.message.reply_text("Dibatalkan.", reply_markup=keyboards.get_main_menu_keyboard())
         context.user_data.clear()
         return ROUTE
-    if not user_input.isdigit():
-        await update.message.reply_text("❌ Input tidak valid.")
-        return SSH_SELECT_ACCOUNT
-    selected_num = int(user_input)
-    accounts_list = context.user_data.get('ssh_accounts_list')
-    if not accounts_list or not (0 < selected_num <= len(accounts_list)):
-        await update.message.reply_text("❌ Nomor akun tidak valid.", reply_markup=keyboards.get_back_to_menu_keyboard())
-        return SSH_SELECT_ACCOUNT
-    username = accounts_list[selected_num - 1]['user']
-    await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk `{username}`...", parse_mode='Markdown')
-    try:
-        log_path = f"/etc/xray/sshx/akun/log-create-{username}.log"
-        if not os.path.exists(log_path):
-            await update.message.reply_text(f"❌ File log untuk `{username}` tidak ditemukan.", parse_mode='Markdown')
-            return ROUTE
-        with open(log_path, 'r') as f:
-            config_content = f.read()
-        cleaned_content = re.sub(r'\x1B\[[0-9;]*m', '', config_content)
-        await update.message.reply_text(f"```\n{cleaned_content}\n```", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    
+    await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk akun nomor `{escape_markdown_v2(user_input)}`...", parse_mode=ParseMode.MARKDOWN_V2)
+    # Anda perlu membuat skrip get_ssh_config.sh yang menerima nomor sebagai argumen
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/get_ssh_config.sh', user_input])
     context.user_data.clear()
     return ROUTE
 
@@ -469,11 +509,7 @@ async def create_ssh_trial_account(update: Update, context: ContextTypes.DEFAULT
         await update.message.reply_text("❌ Durasi harus berupa angka positif.")
         return TRIAL_CREATE_SSH
     await update.message.reply_text("⏳ Membuat akun Trial SSH...")
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_ssh.sh', duration], capture_output=True, text=True, check=True, timeout=30)
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_ssh.sh', duration])
     context.user_data.clear()
     return ROUTE
 
@@ -490,11 +526,7 @@ async def vmess_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data['duration'] = update.message.text
     ud = context.user_data
     await update.message.reply_text("⏳ Membuat akun VMESS...")
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_vmess_user.sh', ud['user'], ud['duration']], capture_output=True, text=True, check=True, timeout=30)
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_vmess_user.sh', ud['user'], ud['duration']])
     context.user_data.clear()
     return ROUTE
 
@@ -507,20 +539,12 @@ async def vmess_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE
     except Exception as e:
         await handle_script_error(update, context, e)
         return ROUTE
-    if script_output == "NO_CLIENTS":
-        await query.edit_message_text("ℹ️ *Belum ada akun VMESS yang terdaftar.*", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
+    if "NO_CLIENTS" in script_output:
+        await query.edit_message_text("ℹ️ Belum ada akun VMESS yang terdaftar.", reply_markup=keyboards.get_back_to_menu_keyboard())
         return ROUTE
-    account_details = []
-    for line in script_output.splitlines():
-        parts = line.split(' ', 2)
-        if len(parts) == 3:
-            account_details.append({'num': parts[0], 'user': parts[1], 'exp': parts[2]})
-    context.user_data['vmess_accounts_list'] = account_details
-    list_text = "📋 *DAFTAR AKUN VMESS*\n" + "-"*40 + "\n*No* | *Username* | *Expired*\n" + "-"*40 + "\n"
-    for acc in account_details:
-        list_text += f"{acc['num']:<3} | `{acc['user']:<18}` | `{acc['exp']:<20}`\n"
-    list_text += "-"*40 + f"\n📊 *Total:* `{len(account_details)}` akun.\n💡 *Tip:* Ketik nomor akun untuk detail."
-    await query.edit_message_text(list_text, parse_mode='Markdown')
+    
+    safe_output = escape_markdown_v2(script_output)
+    await query.edit_message_text(f"```\n{safe_output}\n```", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboards.get_back_to_menu_keyboard())
     return VMESS_SELECT_ACCOUNT
 
 async def vmess_select_account_and_show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -529,27 +553,10 @@ async def vmess_select_account_and_show_config(update: Update, context: ContextT
         await update.message.reply_text("Dibatalkan.", reply_markup=keyboards.get_main_menu_keyboard())
         context.user_data.clear()
         return ROUTE
-    if not user_input.isdigit():
-        await update.message.reply_text("❌ Input tidak valid.")
-        return VMESS_SELECT_ACCOUNT
-    selected_num = int(user_input)
-    accounts_list = context.user_data.get('vmess_accounts_list')
-    if not accounts_list or not (0 < selected_num <= len(accounts_list)):
-        await update.message.reply_text("❌ Nomor akun tidak valid.", reply_markup=keyboards.get_back_to_menu_keyboard())
-        return VMESS_SELECT_ACCOUNT
-    username = accounts_list[selected_num - 1]['user']
-    await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk `{username}`...", parse_mode='Markdown')
-    try:
-        log_path = f"/etc/vmess/akun/vmess-{username}.log"
-        if not os.path.exists(log_path):
-            await update.message.reply_text(f"❌ File log untuk `{username}` tidak ditemukan.", parse_mode='Markdown')
-            return ROUTE
-        with open(log_path, 'r') as f:
-            config_content = f.read()
-        cleaned_content = re.sub(r'\x1B\[[0-9;]*m', '', config_content)
-        await update.message.reply_text(f"```\n{cleaned_content}\n```", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    
+    await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk akun nomor `{escape_markdown_v2(user_input)}`...", parse_mode=ParseMode.MARKDOWN_V2)
+    # Anda perlu membuat skrip get_vmess_config.sh yang menerima nomor sebagai argumen
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/get_vmess_config.sh', user_input])
     context.user_data.clear()
     return ROUTE
 
@@ -566,11 +573,7 @@ async def create_vmess_trial_account(update: Update, context: ContextTypes.DEFAU
         await update.message.reply_text("❌ Durasi harus berupa angka positif.")
         return TRIAL_CREATE_VMESS
     await update.message.reply_text("⏳ Membuat akun Trial VMESS...")
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_vmess.sh', duration], capture_output=True, text=True, check=True, timeout=30)
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_vmess.sh', duration])
     context.user_data.clear()
     return ROUTE
 
@@ -603,23 +606,15 @@ async def vless_get_quota_and_create(update: Update, context: ContextTypes.DEFAU
     context.user_data['quota_gb'] = update.message.text
     await update.message.reply_text("⏳ Membuat akun VLESS...")
     ud = context.user_data
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_vless_user.sh', ud['user'], ud['duration'], ud['ip_limit'], ud['quota_gb']], capture_output=True, text=True, check=True, timeout=30)
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_vless_user.sh', ud['user'], ud['duration'], ud['ip_limit'], ud['quota_gb']])
     context.user_data.clear()
     return ROUTE
 
 async def vless_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("⏳ Mengambil daftar akun VLESS...", reply_markup=keyboards.get_back_to_menu_keyboard())
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/list_vless_users.sh'], capture_output=True, text=True, check=True, timeout=30)
-        await query.edit_message_text(f"📋 **Daftar Akun VLESS:**\n\n{p.stdout}", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await query.edit_message_text("⏳ Mengambil daftar akun VLESS...")
+    await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/list_vless_users.sh'], "Daftar Akun VLESS")
     return ROUTE
 
 async def start_vless_trial_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -634,11 +629,7 @@ async def create_vless_trial_account(update: Update, context: ContextTypes.DEFAU
         await update.message.reply_text("❌ Durasi harus berupa angka positif.")
         return TRIAL_CREATE_VLESS
     await update.message.reply_text("⏳ Membuat akun Trial VLESS...")
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_vless.sh', duration], capture_output=True, text=True, check=True, timeout=30)
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_vless.sh', duration])
     context.user_data.clear()
     return ROUTE
 
@@ -650,6 +641,14 @@ async def trojan_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def trojan_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not update.message.text.isdigit() or int(update.message.text) <= 0:
+        await update.message.reply_text("❌ Durasi harus berupa angka positif.")
+        return TROJAN_GET_DURATION
+    context.user_data['duration'] = update.message.text
+    await update.message.reply_text("➡️ Masukkan batas IP untuk akun TROJAN:")
+    return TROJAN_GET_IP_LIMIT
+
+async def trojan_get_ip_limit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not update.message.text.isdigit() or int(update.message.text) < 1:
         await update.message.reply_text("❌ Durasi harus berupa angka positif.")
         return TROJAN_GET_DURATION
     context.user_data['duration'] = update.message.text
