@@ -26,6 +26,7 @@ VMESS_GET_USER, VMESS_GET_DURATION = map(chr, range(5, 7))
 VLESS_GET_USER, VLESS_GET_DURATION, VLESS_GET_IP_LIMIT, VLESS_GET_QUOTA = map(chr, range(7, 11))
 TROJAN_GET_USER, TROJAN_GET_DURATION, TROJAN_GET_IP_LIMIT, TROJAN_GET_QUOTA = map(chr, range(11, 15))
 RENEW_SSH_GET_USERNAME, RENEW_SSH_GET_DURATION = map(chr, range(15, 17))
+# State Trial DIKEMBALIKAN agar cocok dengan main.py
 TRIAL_CREATE_SSH, TRIAL_CREATE_VMESS, TRIAL_CREATE_VLESS, TRIAL_CREATE_TROJAN = map(chr, range(18, 22))
 DELETE_GET_USERNAME, DELETE_CONFIRMATION = map(chr, range(22, 24))
 VMESS_SELECT_ACCOUNT = chr(25)
@@ -81,7 +82,7 @@ async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     query = update.callback_query
     await query.answer()
     chat_id = update.effective_chat.id
-    
+
     await query.edit_message_text("⏳ Memulai proses backup, mohon tunggu...")
 
     try:
@@ -90,7 +91,7 @@ async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             ['sudo', script_path],
             capture_output=True, text=True, check=True, timeout=600
         )
-        
+
         script_output = process.stdout
         await context.bot.send_message(chat_id, script_output)
 
@@ -103,7 +104,7 @@ async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             await context.bot.send_message(chat_id, "📤 Mengirim file backup...")
             with open(local_file_path, 'rb') as backup_file:
                 await context.bot.send_document(chat_id, document=backup_file)
-            
+
             os.remove(local_file_path)
             await context.bot.send_message(chat_id, "✅ File backup di server telah dihapus.")
         elif local_file_path:
@@ -113,9 +114,9 @@ async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     except Exception as e:
         await handle_script_error(update, context, e)
-        
+
     await context.bot.send_message(chat_id, "Proses selesai.", reply_markup=keyboards.get_back_to_menu_keyboard())
-    
+
     return ROUTE
 
 async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -259,7 +260,7 @@ async def run_script_and_reply(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         p = subprocess.run(script_command, capture_output=True, text=True, check=True, timeout=60)
         output = p.stdout.strip()
-        
+
         if output:
             response_text = f"✅ {success_message}\n\n{output}"
         else:
@@ -367,7 +368,7 @@ async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if "NO_CLIENTS" in script_output:
         await query.edit_message_text("ℹ️ Belum ada akun SSH yang terdaftar di sistem.", reply_markup=keyboards.get_back_to_menu_keyboard())
         return ROUTE
-    
+
     await query.edit_message_text(script_output)
     return SSH_SELECT_ACCOUNT
 
@@ -377,19 +378,13 @@ async def ssh_select_account_and_show_config(update: Update, context: ContextTyp
         await update.message.reply_text("Dibatalkan.", reply_markup=keyboards.get_main_menu_keyboard())
         context.user_data.clear()
         return ROUTE
-    
+
     await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk akun nomor {user_input}...")
     await send_script_output(update, context, ['sudo', '/opt/hokage-bot/get_ssh_config.sh', user_input])
     context.user_data.clear()
     return ROUTE
 
-# --- SSH Trial Handlers ---
-async def start_ssh_trial_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("➡️ Masukkan durasi (hari) untuk akun Trial SSH:")
-    return TRIAL_CREATE_SSH
-
+# --- Trial Handlers (DIKEMBALIKAN) ---
 async def create_ssh_trial_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     duration = update.message.text
     if not duration.isdigit() or int(duration) <= 0:
@@ -397,8 +392,32 @@ async def create_ssh_trial_account(update: Update, context: ContextTypes.DEFAULT
         return TRIAL_CREATE_SSH
     await update.message.reply_text("⏳ Membuat akun Trial SSH...")
     await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_ssh.sh', duration])
-    context.user_data.clear()
-    return ROUTE
+    return ConversationHandler.END
+
+async def create_vmess_trial_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # Karena main.py menggunakan filter.ALL, kita asumsikan durasi default
+    duration = "1"
+    await update.message.reply_text("⏳ Membuat akun Trial VMESS...")
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_vmess.sh', duration])
+    return ConversationHandler.END
+
+async def create_vless_trial_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    duration = update.message.text
+    if not duration.isdigit() or int(duration) <= 0:
+        await update.message.reply_text("❌ Durasi harus berupa angka positif.")
+        return TRIAL_CREATE_VLESS
+    await update.message.reply_text("⏳ Membuat akun Trial VLESS...")
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_vless.sh', duration])
+    return ConversationHandler.END
+
+async def create_trojan_trial_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    duration = update.message.text
+    if not duration.isdigit() or int(duration) <= 0:
+        await update.message.reply_text("❌ Durasi harus berupa angka positif.")
+        return TRIAL_CREATE_TROJAN
+    await update.message.reply_text("⏳ Membuat akun Trial TROJAN...")
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_trojan.sh', duration])
+    return ConversationHandler.END
 
 # --- VMESS Handlers ---
 async def vmess_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -429,7 +448,7 @@ async def vmess_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE
     if "NO_CLIENTS" in script_output:
         await query.edit_message_text("ℹ️ Belum ada akun VMESS yang terdaftar.", reply_markup=keyboards.get_back_to_menu_keyboard())
         return ROUTE
-    
+
     await query.edit_message_text(script_output)
     return VMESS_SELECT_ACCOUNT
 
@@ -439,26 +458,9 @@ async def vmess_select_account_and_show_config(update: Update, context: ContextT
         await update.message.reply_text("Dibatalkan.", reply_markup=keyboards.get_main_menu_keyboard())
         context.user_data.clear()
         return ROUTE
-    
+
     await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk akun nomor {user_input}...")
     await send_script_output(update, context, ['sudo', '/opt/hokage-bot/get_vmess_config.sh', user_input])
-    context.user_data.clear()
-    return ROUTE
-
-# --- VMESS Trial Handlers ---
-async def start_vmess_trial_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("➡️ Masukkan durasi (hari) untuk akun Trial VMESS:")
-    return TRIAL_CREATE_VMESS
-
-async def create_vmess_trial_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    duration = update.message.text
-    if not duration.isdigit() or int(duration) <= 0:
-        await update.message.reply_text("❌ Durasi harus berupa angka positif.")
-        return TRIAL_CREATE_VMESS
-    await update.message.reply_text("⏳ Membuat akun Trial VMESS...")
-    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_vmess.sh', duration])
     context.user_data.clear()
     return ROUTE
 
@@ -502,22 +504,6 @@ async def vless_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE
     await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/list_vless_users.sh'], "Daftar Akun VLESS")
     return ROUTE
 
-async def start_vless_trial_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("➡️ Masukkan durasi (hari) untuk akun Trial VLESS:")
-    return TRIAL_CREATE_VLESS
-
-async def create_vless_trial_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    duration = update.message.text
-    if not duration.isdigit() or int(duration) <= 0:
-        await update.message.reply_text("❌ Durasi harus berupa angka positif.")
-        return TRIAL_CREATE_VLESS
-    await update.message.reply_text("⏳ Membuat akun Trial VLESS...")
-    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_vless.sh', duration])
-    context.user_data.clear()
-    return ROUTE
-
 # --- TROJAN Handlers ---
 async def trojan_get_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['user'] = update.message.text
@@ -558,22 +544,6 @@ async def trojan_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYP
     await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/list_trojan_users.sh'], "Daftar Akun TROJAN")
     return ROUTE
 
-async def start_trojan_trial_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("➡️ Masukkan durasi (hari) untuk akun Trial TROJAN:")
-    return TRIAL_CREATE_TROJAN
-
-async def create_trojan_trial_account(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    duration = update.message.text
-    if not duration.isdigit() or int(duration) <= 0:
-        await update.message.reply_text("❌ Durasi harus berupa angka positif.")
-        return TRIAL_CREATE_TROJAN
-    await update.message.reply_text("⏳ Membuat akun Trial TROJAN...")
-    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_trojan.sh', duration])
-    context.user_data.clear()
-    return ROUTE
-
 # --- Delete Handlers ---
 async def delete_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     username_to_delete = update.message.text
@@ -608,7 +578,7 @@ async def delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
             script_path = script_map.get(protocol.lower())
             if not script_path:
                 raise ValueError(f"Protokol {protocol} tidak didukung.")
-            
+
             p = subprocess.run(['sudo', script_path, username_to_delete], capture_output=True, text=True, check=True, timeout=30)
             await query.edit_message_text(p.stdout.strip(), reply_markup=keyboards.get_back_to_menu_keyboard())
         except Exception as e:
@@ -621,12 +591,7 @@ async def delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # --- Conversation Control ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    file_path = context.user_data.pop('restore_file_path', None)
-    if file_path and os.path.exists(file_path):
-        os.remove(file_path)
-    
     context.user_data.clear()
-    
     await update.effective_chat.send_message("❌ Operasi dibatalkan.", reply_markup=keyboards.get_main_menu_keyboard())
     return ConversationHandler.END
 
