@@ -1,60 +1,36 @@
 #!/bin/bash
-# ==================================================================
-#       SKRIP v2.0 - LIST TROJAN USERS (BEAUTIFIED)
-# ==================================================================
-# Deskripsi: Menampilkan daftar akun TROJAN dengan format yang indah.
+# ===============================================================
+# Script: list_trojan_users.sh - Tampilan cantik daftar akun TROJAN
+# ===============================================================
 
 CONFIG_FILE="/etc/xray/config.json"
-
-# Fungsi untuk menghapus kode warna ANSI (jaga-jaga)
-strip_ansi_colors() {
-    sed 's/\x1B\[[0-9;]*m//g'
-}
+export LANG=en_US.UTF-8
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "ERROR: File konfigurasi XRay tidak ditemukan: $CONFIG_FILE" >&2
+    echo -e "🚫 *File konfigurasi tidak ditemukan:* \`$CONFIG_FILE\`"
     exit 1
 fi
 
-# Mengambil data user dari komentar #tr
-# Format output: "1 user1 2025-12-31"
-TROJAN_USERS=$(grep -E "^#tr " "$CONFIG_FILE" | awk '{print $2, $3}' | nl -w1 -s ' ' | while read -r num user exp_date; do
-    user_clean=$(echo "$user" | strip_ansi_colors)
-    exp_date_clean=$(echo "$exp_date" | strip_ansi_colors)
-    echo "$num $user_clean $exp_date_clean"
-done)
+# Hitung jumlah akun TROJAN
+NUMBER_OF_CLIENTS=$(grep -c -E "^#tr " "$CONFIG_FILE")
 
-# --- Mulai Membuat Tampilan ---
-
-# Header Utama
-echo "═══════[ DAFTAR AKUN TROJAN ]═══════"
-
-if [ -z "$TROJAN_USERS" ]; then
-    echo "      Belum ada akun TROJAN"
-    echo "      yang terdaftar di sistem."
+if [[ ${NUMBER_OF_CLIENTS} == '0' ]]; then
+    echo -e "🚫 *Tidak ada akun TROJAN yang aktif*"
 else
-    # Menghitung total akun
-    TOTAL_AKUN=$(echo "$TROJAN_USERS" | wc -l)
-    echo " Total Akun: ${TOTAL_AKUN}"
-    echo "───────────────────────────────────────"
-    # Header Tabel
-    printf " No. | Username             | Expired\n"
-    echo "───────────────────────────────────────"
+    echo -e "🛡️ *D A F T A R  A K U N  T R O J A N*"
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "〄  *USER*             *EXPIRED*"
+    echo -e "―――――――――――――――――――――――――――――"
 
-    # Body Tabel (Loop melalui data user)
-    echo "$TROJAN_USERS" | while read -r num user exp; do
-        printf " %-3s | %-20s | %s\n" "$num" "$user" "$exp"
+    # Ambil data user dari komentar #tr
+    grep -E "^#tr " "$CONFIG_FILE" | nl -w1 -s ' ' | while read -r num line; do
+        user=$(echo "$line" | awk '{print $2}')
+        exp=$(echo "$line" | awk '{print $3}')
+        printf "👤 %-15s ⏳ %s\n" "$user" "$exp"
     done
 
-    echo "───────────────────────────────────────"
-    # Footer/Instruksi
-    echo "💡 Tip: Ketik nomor akun untuk"
-    echo "   melihat detail konfigurasi."
-    echo ""
-    echo "   Ketik 0 untuk kembali."
+    echo -e "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo -e "📊 *Total Akun*: *$NUMBER_OF_CLIENTS*"
 fi
-
-# Footer Utama
-echo "═══════════════════════════════════"
 
 exit 0
