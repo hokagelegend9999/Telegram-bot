@@ -1,58 +1,75 @@
 #!/bin/bash
+# ==================================================================
+#       SKRIP RESTORE v1.0 - From Telegram Backup
+# ==================================================================
 
-# Skrip untuk merestore backup terbaru dari rclone (Google Drive)
-
-# --- Variabel ---
-RCLONE_REMOTE="dr:backup/" # Sesuaikan jika nama remote rclone Anda berbeda
-RESTORE_DIR="/root/restore_temp"
-
-# --- Proses Utama ---
-echo "⚙️  Memulai proses restore..."
-
-# 1. Cari file backup terbaru di rclone
-echo "1. Mencari backup terbaru di Google Drive..."
-LATEST_BACKUP=$(rclone lsf "$RCLONE_REMOTE" --files-only | sort -r | head -n 1)
-
-if [ -z "$LATEST_BACKUP" ]; then
-    echo "❌ Gagal: Tidak ada file backup yang ditemukan di ${RCLONE_REMOTE}."
+# Validasi argumen
+if [ "$#" -ne 1 ]; then
+    echo "❌ Error: Butuh 1 argumen: path_ke_file_backup.zip"
     exit 1
 fi
-echo "Backup terbaru ditemukan: ${LATEST_BACKUP}"
 
-# 2. Buat direktori sementara dan unduh backup
-echo "2. Mengunduh file backup..."
+BACKUP_FILE="$1"
+RESTORE_DIR="/root/restore_temp_$(date +%s)"
+
+# --- Proses Utama ---
+
+# 1. Cek apakah file backup ada
+echo "🔎 Langkah 1: Memeriksa file backup..."
+if [ ! -f "$BACKUP_FILE" ]; then
+    echo "Error: File backup tidak ditemukan di '$BACKUP_FILE'."
+    exit 1
+fi
+echo "File ditemukan."
+
+# 2. Membuat direktori restore sementara
+echo "📁 Langkah 2: Membuat direktori sementara..."
 mkdir -p "$RESTORE_DIR"
-rclone copy "${RCLONE_REMOTE}${LATEST_BACKUP}" "$RESTORE_DIR"
 if [ $? -ne 0 ]; then
-    echo "❌ Gagal: Tidak dapat mengunduh file dari rclone."
-    rm -rf "$RESTORE_DIR"
+    echo "Error: Gagal membuat direktori sementara."
     exit 1
 fi
 
 # 3. Ekstrak file backup
-echo "3. Mengekstrak file .zip..."
-BACKUP_FILE_PATH="$RESTORE_DIR/$LATEST_BACKUP"
-unzip -o "$BACKUP_FILE_PATH" -d "$RESTORE_DIR/extracted" &>/dev/null
+echo "🗜️  Langkah 3: Mengekstrak arsip..."
+# Opsi -o untuk menimpa file tanpa bertanya
+unzip -o "$BACKUP_FILE" -d "$RESTORE_DIR/" &>/dev/null
 if [ $? -ne 0 ]; then
-    echo "❌ Gagal: Tidak dapat mengekstrak file backup."
+    echo "Error: Gagal mengekstrak file ZIP. File mungkin rusak."
     rm -rf "$RESTORE_DIR"
     exit 1
 fi
+echo "Ekstrak berhasil."
 
-# 4. Timpa file sistem (Langkah Paling Kritis!)
-echo "4. Menyalin file ke sistem (overwrite)..."
-cp -rf "$RESTORE_DIR/extracted/etc/" /
-cp -rf "$RESTORE_DIR/extracted/var/" /
-cp -rf "$RESTORE_DIR/extracted/root/" /
-echo "File sistem berhasil ditimpa."
+# 4. Menyalin file ke lokasi asli (OVERWRITE)
+# Menggunakan rsync -a untuk menjaga perizinan dan menyalin secara rekursif
+echo "⚙️  Langkah 4: Menyalin file ke sistem..."
+if [ -d "$RESTORE_DIR/etc" ]; then
+    rsync -a "$RESTORE_DIR/etc/" /etc/
+fi
+if [ -d "$RESTORE_DIR/var/lib/kyt" ]; then
+    rsync -a "$RESTORE_DIR/var/lib/kyt/" /var/lib/kyt/
+fi
+if [ -d "$RESTORE_DIR/var/www/html" ]; then
+    rsync -a "$RESTORE_DIR/var/www/html/" /var/www/html/
+fi
+echo "File sistem berhasil dipulihkan."
 
-# 5. Restart semua layanan terkait
-echo "5. Merestart semua layanan..."
-systemctl restart nginx xray cron ssh dropbear openvpn ws-stunnel &>/dev/null
+# 5. Restart layanan
+echo "🔄 Langkah 5: Merestart layanan..."
+systemctl restart xray > /dev/null 2>&1
+echo "Layanan Xray berhasil direstart."
 
-# 6. Membersihkan file sementara
-echo "6. Membersihkan direktori sementara..."
-rm -rf "$RESTORE_DIR"
+# 6. Membersihkan
+echo "🧹 Langkah 6: Membersihkan file sementara..."
+rm -f "$BACKUP_FILE" # Hapus file zip yang diupload
+rm -rf "$RESTORE_DIR" # Hapus folder ekstrak
+echo "Pembersihan selesai."
 
+# 7. Output akhir
 echo ""
-echo "✅ Restore Selesai! Semua konfigurasi dari backup '${LATEST_BACKUP}' telah diterapkan."
+echo "✅ --- Restore Selesai ---"
+echo "Status: Berhasil"
+echo "Semua data dari file backup telah dipulihkan."
+
+exit 0
