@@ -42,9 +42,7 @@ def main() -> None:
     application.add_handler(CommandHandler("cancel", handlers.cancel))
 
     # --- ConversationHandlers untuk semua alur ---
-    # Catatan: Alur restore yang disederhanakan tidak lagi memerlukan ConversationHandler sendiri.
-    # Itu ditangani di dalam route_handler.
-
+    
     # 1. SSH Creation Conversation
     application.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^ssh_add$")],
@@ -58,7 +56,6 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
 
@@ -73,7 +70,6 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
 
@@ -88,7 +84,6 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
 
@@ -102,7 +97,6 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
 
@@ -119,7 +113,6 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
 
@@ -133,7 +126,6 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
 
@@ -150,7 +142,6 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
 
@@ -164,7 +155,20 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
+    ))
+
+    # --- PENAMBAHAN HANDLER UNTUK SSH TRIAL ---
+    # 8.5 SSH Trial Creation Conversation
+    application.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^ssh_trial$")],
+        states={
+            handlers.TRIAL_CREATE_SSH: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.create_ssh_trial_account)],
+        },
+        fallbacks=[
+            CommandHandler("cancel", handlers.cancel),
+            CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
+        ],
         per_user=True, per_chat=False
     ))
 
@@ -184,21 +188,23 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
 
-    # 10. VMESS List & View Config Conversation
+    # 10. List & View Config Conversation
     application.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^vmess_list$")],
+        entry_points=[
+            CallbackQueryHandler(handlers.route_handler, pattern="^ssh_list$"),
+            CallbackQueryHandler(handlers.route_handler, pattern="^vmess_list$")
+        ],
         states={
-            handlers.VMESS_SELECT_ACCOUNT: [MessageHandler(filters.ALL, handlers.vmess_select_account_and_show_config)],
+            handlers.SSH_SELECT_ACCOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.ssh_select_account_and_show_config)],
+            handlers.VMESS_SELECT_ACCOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vmess_select_account_and_show_config)],
         },
         fallbacks=[
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
 
