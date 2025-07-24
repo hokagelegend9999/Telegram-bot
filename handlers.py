@@ -649,14 +649,6 @@ async def trojan_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def trojan_get_ip_limit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not update.message.text.isdigit() or int(update.message.text) < 1:
-        await update.message.reply_text("❌ Durasi harus berupa angka positif.")
-        return TROJAN_GET_DURATION
-    context.user_data['duration'] = update.message.text
-    await update.message.reply_text("➡️ Masukkan batas IP untuk akun TROJAN:")
-    return TROJAN_GET_IP_LIMIT
-
-async def trojan_get_ip_limit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if not update.message.text.isdigit() or int(update.message.text) < 1:
         await update.message.reply_text("❌ Batas IP harus berupa angka positif.")
         return TROJAN_GET_IP_LIMIT
     context.user_data['ip_limit'] = update.message.text
@@ -670,23 +662,15 @@ async def trojan_get_quota_and_create(update: Update, context: ContextTypes.DEFA
     context.user_data['quota_gb'] = update.message.text
     await update.message.reply_text("⏳ Membuat akun TROJAN...")
     ud = context.user_data
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_trojan_user.sh', ud['user'], ud['duration'], ud['ip_limit'], ud['quota_gb']], capture_output=True, text=True, check=True, timeout=30)
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trojan_user.sh', ud['user'], ud['duration'], ud['ip_limit'], ud['quota_gb']])
     context.user_data.clear()
     return ROUTE
 
 async def trojan_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("⏳ Mengambil daftar akun TROJAN...", reply_markup=keyboards.get_back_to_menu_keyboard())
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/list_trojan_users.sh'], capture_output=True, text=True, check=True, timeout=30)
-        await query.edit_message_text(f"📋 **Daftar Akun TROJAN:**\n\n{p.stdout}", parse_mode='Markdown', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await query.edit_message_text("⏳ Mengambil daftar akun TROJAN...")
+    await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/list_trojan_users.sh'], "Daftar Akun TROJAN")
     return ROUTE
 
 async def start_trojan_trial_creation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -701,11 +685,7 @@ async def create_trojan_trial_account(update: Update, context: ContextTypes.DEFA
         await update.message.reply_text("❌ Durasi harus berupa angka positif.")
         return TRIAL_CREATE_TROJAN
     await update.message.reply_text("⏳ Membuat akun Trial TROJAN...")
-    try:
-        p = subprocess.run(['sudo', '/opt/hokage-bot/create_trial_trojan.sh', duration], capture_output=True, text=True, check=True, timeout=30)
-        await update.message.reply_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
-    except Exception as e:
-        await handle_script_error(update, context, e)
+    await send_script_output(update, context, ['sudo', '/opt/hokage-bot/create_trial_trojan.sh', duration])
     context.user_data.clear()
     return ROUTE
 
@@ -714,9 +694,10 @@ async def delete_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE
     username_to_delete = update.message.text
     context.user_data['username_to_delete'] = username_to_delete
     protocol = context.user_data.get('delete_protocol', 'Akun')
+    safe_username = escape_markdown_v2(username_to_delete)
     await update.message.reply_text(
-        f"Anda yakin ingin menghapus akun {protocol} dengan username <b>{username_to_delete}</b>?",
-        parse_mode='HTML',
+        f"Anda yakin ingin menghapus akun {protocol} dengan username *{safe_username}*?",
+        parse_mode=ParseMode.MARKDOWN_V2,
         reply_markup=keyboards.get_confirmation_keyboard()
     )
     return DELETE_CONFIRMATION
@@ -733,7 +714,7 @@ async def delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
             context.user_data.clear()
             return ROUTE
 
-        await query.edit_message_text(f"⏳ Sedang menghapus akun {protocol}...", reply_markup=keyboards.get_back_to_menu_keyboard())
+        await query.edit_message_text(f"⏳ Sedang menghapus akun {protocol}...")
         try:
             script_map = {
                 'ssh': '/opt/hokage-bot/delete-ssh.sh',
@@ -746,7 +727,8 @@ async def delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                 raise ValueError(f"Protokol {protocol} tidak didukung.")
             
             p = subprocess.run(['sudo', script_path, username_to_delete], capture_output=True, text=True, check=True, timeout=30)
-            await query.edit_message_text(p.stdout, parse_mode='HTML', reply_markup=keyboards.get_back_to_menu_keyboard())
+            safe_output = escape_markdown_v2(p.stdout.strip())
+            await query.edit_message_text(f"```\n{safe_output}\n```", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboards.get_back_to_menu_keyboard())
         except Exception as e:
             await handle_script_error(update, context, e)
     else:
@@ -757,8 +739,12 @@ async def delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # --- Conversation Control ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if context.user_data:
-        context.user_data.clear()
+    file_path = context.user_data.pop('restore_file_path', None)
+    if file_path and os.path.exists(file_path):
+        os.remove(file_path)
+    
+    context.user_data.clear()
+    
     await update.effective_chat.send_message("❌ Operasi dibatalkan.", reply_markup=keyboards.get_main_menu_keyboard())
     return ConversationHandler.END
 
