@@ -1,54 +1,60 @@
 #!/bin/bash
-# Script: list_vless_users.sh
-# Deskripsi: Mengambil daftar akun VLESS langsung dari /etc/xray/config.json
-
-# Pastikan 'jq' terinstal: sudo apt install -y jq
+# ==================================================================
+#       SKRIP v2.0 - LIST VLESS USERS (BEAUTIFIED)
+# ==================================================================
+# Deskripsi: Menampilkan daftar akun VLESS dengan format yang indah.
 
 CONFIG_FILE="/etc/xray/config.json"
 
+# Fungsi untuk menghapus kode warna ANSI (jaga-jaga)
+strip_ansi_colors() {
+    sed 's/\x1B\[[0-9;]*m//g'
+}
+
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Error: File konfigurasi XRay/V2Ray tidak ditemukan: $CONFIG_FILE" >&2
+    echo "ERROR: File konfigurasi XRay tidak ditemukan: $CONFIG_FILE" >&2
     exit 1
 fi
 
-# Cek apakah file JSON valid sebelum diproses
-if ! jq -e . "$CONFIG_FILE" > /dev/null; then
-    echo "Error: File konfigurasi JSON tidak valid: $CONFIG_FILE" >&2
-    exit 1
-fi
+# Mengambil data user dari komentar #vls
+# Format output: "1 user1 2025-12-31"
+VLESS_USERS=$(grep -E "^#vls " "$CONFIG_FILE" | awk '{print $2, $3}' | nl -w1 -s ' ' | while read -r num user exp_date; do
+    user_clean=$(echo "$user" | strip_ansi_colors)
+    exp_date_clean=$(echo "$exp_date" | strip_ansi_colors)
+    echo "$num $user_clean $exp_date_clean"
+done)
 
-echo "Username             UUID                               Kadaluwarsa"
-echo "------------------------------------------------------------------"
+# --- Mulai Membuat Tampilan ---
 
-# Ekstrak data VLESS dari config.json
-# Kita mencari 'inbounds' dengan 'protocol == "vless"'
-# Kemudian di dalamnya, kita ambil 'clients' dari 'settings'
-# Untuk setiap klien, kita ambil 'email' (username) dan 'id' (UUID).
-# expiryTime perlu dikonversi dari milidetik.
-jq_query='
-.inbounds[] |
-select(.protocol == "vless") |
-.settings.clients[] |
-"\(.email // .id // "N/A_Username") \(.id // "N/A_UUID") \(if .expiryTime then (.expiryTime | tostring) else "0" end) \(if .totalUsed then (.totalUsed | tostring) else "0" end) \(if .limitIp then (.limitIp | tostring) else "0" end)"
-'
+# Header Utama
+echo "═══════[ DAFTAR AKUN VLESS ]═══════"
 
-VLESS_USERS_DATA=$(cat "$CONFIG_FILE" | jq -r "$jq_query")
-
-if [ -z "$VLESS_USERS_DATA" ] || [ "$VLESS_USERS_DATA" == "null" ]; then
-    echo "Belum ada akun VLESS yang ditemukan di $CONFIG_FILE."
+if [ -z "$VLESS_USERS" ]; then
+    echo "      Belum ada akun VLESS"
+    echo "      yang terdaftar di sistem."
 else
-    echo "$VLESS_USERS_DATA" | while read email_or_id uuid expiry_ms total_used limit_ip; do
-        # Format tanggal kadaluwarsa
-        if [ "$expiry_ms" != "0" ] && [ "$expiry_ms" != "null" ]; then
-            # Konversi milidetik ke detik
-            expiry_date=$(date -d "@$((expiry_ms / 1000))" +"%Y-%m-%d %H:%M")
-        else
-            expiry_date="Tidak Terbatas"
-        fi
-        
-        printf "%-20s %-35s %-s\n" "$email_or_id" "$uuid" "$expiry_date"
-        # Optional: printf "    Penggunaan: %s, Limit IP: %s\n" "$formatted_used" "$limit_ip"
+    # Menghitung total akun
+    TOTAL_AKUN=$(echo "$VLESS_USERS" | wc -l)
+    echo " Total Akun: ${TOTAL_AKUN}"
+    echo "───────────────────────────────────────"
+    # Header Tabel
+    printf " No. | Username             | Expired\n"
+    echo "───────────────────────────────────────"
+
+    # Body Tabel (Loop melalui data user)
+    echo "$VLESS_USERS" | while read -r num user exp; do
+        printf " %-3s | %-20s | %s\n" "$num" "$user" "$exp"
     done
+
+    echo "───────────────────────────────────────"
+    # Footer/Instruksi
+    echo "💡 Tip: Ketik nomor akun untuk"
+    echo "   melihat detail konfigurasi."
+    echo ""
+    echo "   Ketik 0 untuk kembali."
 fi
 
-exit 0 # Pastikan script keluar dengan kode 0 untuk sukses
+# Footer Utama
+echo "═══════════════════════════════════"
+
+exit 0
