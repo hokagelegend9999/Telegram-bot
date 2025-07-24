@@ -10,10 +10,7 @@ from telegram.ext import (
     ContextTypes
 )
 
-# (Disarankan) Import token dan konfigurasi lain dari config.py
 import config
-
-# Import semua handler dan state yang dibutuhkan dari handlers.py
 import handlers
 import database
 
@@ -28,32 +25,25 @@ logger = logging.getLogger(__name__)
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Menangani semua error yang tidak tertangkap."""
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
-    
-    # Kirim pesan error ke user jika memungkinkan
+
     if isinstance(update, Update) and update.effective_message:
         text = "⚠️ Terjadi kesalahan internal. Silakan coba lagi atau hubungi admin."
         await update.effective_message.reply_text(text)
 
 def main() -> None:
     """Memulai dan menjalankan bot."""
-    # Inisialisasi database
     database.init_db()
-
-    # Buat Application builder
     application = Application.builder().token(config.BOT_TOKEN).build()
-
-    # Tambahkan error handler
     application.add_error_handler(error_handler)
-
+    
     # --- Command Handlers ---
-    # Perintah /start dan /menu selalu harus bisa diakses.
     application.add_handler(CommandHandler("start", handlers.start))
     application.add_handler(CommandHandler("menu", handlers.menu))
-    application.add_handler(CommandHandler("cancel", handlers.cancel)) # Global cancel command untuk mengakhiri konversasi apapun
+    application.add_handler(CommandHandler("cancel", handlers.cancel))
 
-    # --- ConversationHandlers untuk Alur Multi-Langkah (PENTING: Definisikan ini DULU) ---
-    # ConversationHandler akan "mencegat" callback query yang sesuai dengan entry_points-nya
-    # sebelum CallbackQueryHandler global di bawahnya. Ini penting untuk prioritas.
+    # --- ConversationHandlers untuk semua alur ---
+    # Catatan: Alur restore yang disederhanakan tidak lagi memerlukan ConversationHandler sendiri.
+    # Itu ditangani di dalam route_handler.
 
     # 1. SSH Creation Conversation
     application.add_handler(ConversationHandler(
@@ -68,8 +58,8 @@ def main() -> None:
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE}, # Kembali ke ROUTE utama setelah selesai
-        per_user=True, per_chat=False # Pengaturan per_user/per_chat untuk ConversationHandler
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
+        per_user=True, per_chat=False
     ))
 
     # 2. SSH Renewal Conversation
@@ -101,12 +91,12 @@ def main() -> None:
         map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
-    
+
     # 4. VMESS Trial Creation Conversation
     application.add_handler(ConversationHandler(
         entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^vmess_trial$")],
         states={
-            handlers.TRIAL_CREATE_VMESS: [MessageHandler(filters.ALL, handlers.create_vmess_trial_account)], # <--- Perubahan filter untuk debugging
+            handlers.TRIAL_CREATE_VMESS: [MessageHandler(filters.ALL, handlers.create_vmess_trial_account)],
         },
         fallbacks=[
             CommandHandler("cancel", handlers.cancel),
@@ -178,7 +168,7 @@ def main() -> None:
         per_user=True, per_chat=False
     ))
 
-    # 9. Delete Account Conversation (Generik untuk semua jenis akun)
+    # 9. Delete Account Conversation
     application.add_handler(ConversationHandler(
         entry_points=[
             CallbackQueryHandler(handlers.route_handler, pattern="^ssh_delete$"),
@@ -188,9 +178,6 @@ def main() -> None:
         ],
         states={
             handlers.DELETE_GET_USERNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.delete_get_username)],
-            # Penting: CallbackQueryHandler ini akan menangkap 'confirm_proceed' dan 'cancel_action'
-            # HANYA ketika bot berada dalam state DELETE_CONFIRMATION, sehingga tidak bentrok dengan route_handler
-            # saat bot TIDAK dalam konversasi penghapusan.
             handlers.DELETE_CONFIRMATION: [CallbackQueryHandler(handlers.delete_confirmation, pattern="^(confirm_proceed|cancel_action)$")]
         },
         fallbacks=[
@@ -201,30 +188,24 @@ def main() -> None:
         per_user=True, per_chat=False
     ))
 
-    # 10. VMESS List & View Config Conversation (BARU)
+    # 10. VMESS List & View Config Conversation
     application.add_handler(ConversationHandler(
-        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^vmess_list$")], # Memulai alur list VMESS
+        entry_points=[CallbackQueryHandler(handlers.route_handler, pattern="^vmess_list$")],
         states={
-            # State ini menunggu input nomor akun dari pengguna
-            handlers.VMESS_SELECT_ACCOUNT: [MessageHandler(filters.ALL, handlers.vmess_select_account_and_show_config)], # <--- Perubahan filter untuk debugging
+            handlers.VMESS_SELECT_ACCOUNT: [MessageHandler(filters.ALL, handlers.vmess_select_account_and_show_config)],
         },
         fallbacks=[
             CommandHandler("cancel", handlers.cancel),
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
         ],
-        map_to_parent={handlers.ROUTE: handlers.ROUTE}, # Kembali ke ROUTE utama setelah selesai
+        map_to_parent={handlers.ROUTE: handlers.ROUTE},
         per_user=True, per_chat=False
     ))
 
+    # --- CallbackQueryHandlers Global ---
+    # Ini akan menangani semua tombol yang tidak memulai percakapan
+    application.add_handler(CallbackQueryHandler(handlers.route_handler))
 
-    # --- CallbackQueryHandlers Global (Definisikan ini SETELAH semua ConversationHandler) ---
-    # Ini akan menangani semua CallbackQuery yang tidak ditangkap oleh ConversationHandler di atas.
-    # Termasuk navigasi menu utama, dan tombol tools (yang tidak memulai konversasi multi-langkah).
-    # Callback data 'confirm_proceed' dan 'cancel_action' di sini hanya untuk ALUR TOOLS (reboot, restore).
-    # 'ssh_list', 'vless_list', 'trojan_list' tetap di sini karena belum diubah menjadi interaktif.
-    application.add_handler(CallbackQueryHandler(handlers.route_handler, pattern="^(main_menu|back_to_main_menu|menu_ssh|menu_vmess|menu_vless|menu_trojan|menu_tools|ssh_list|vless_list|trojan_list|menu_running|menu_restart|menu_backup|confirm_restore|reboot_server|trial_cleanup|confirm_proceed|cancel_action)$"))
-
-    # Jalankan bot
     logger.info("Bot started and running...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
