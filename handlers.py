@@ -12,21 +12,12 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler
 )
-from telegram.constants import ParseMode
 
 import keyboards
 import config
 import database
 
 logger = logging.getLogger(__name__)
-
-# --- Fungsi Helper ---
-def escape_markdown_v2(text: str) -> str:
-    """Meng-escape karakter spesial untuk MarkdownV2 agar aman dikirim."""
-    if not isinstance(text, str):
-        return ""
-    escape_chars = r'\_*[]()~`>#+-=|{}.!'
-    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
 # --- Definisi State ---
 ROUTE = chr(0)
@@ -40,7 +31,6 @@ DELETE_GET_USERNAME, DELETE_CONFIRMATION = map(chr, range(22, 24))
 VMESS_SELECT_ACCOUNT = chr(25)
 SSH_SELECT_ACCOUNT = chr(26)
 RENEW_VMESS_GET_USERNAME, RENEW_VMESS_GET_DURATION = map(chr, range(27, 29))
-RESTORE_WAIT_FILE, RESTORE_CONFIRM = map(chr, range(30, 32))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
@@ -77,102 +67,15 @@ async def handle_script_error(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif isinstance(error, TimeoutError):
         msg = "Script execution timed out. It took too long to respond."
 
-    safe_msg = escape_markdown_v2(msg)
-    text_to_send = f"❌ *Operation Failed*\n\n*Reason:*\n```{safe_msg}```"
+    text_to_send = f"❌ Operation Failed\n\nReason:\n{msg}"
 
-    try:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=text_to_send,
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=keyboards.get_back_to_menu_keyboard()
-        )
-    except Exception as e:
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"Operation Failed:\n{msg}\n\nSecondary error: {e}",
-            reply_markup=keyboards.get_back_to_menu_keyboard()
-        )
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=text_to_send,
+        reply_markup=keyboards.get_back_to_menu_keyboard()
+    )
     logger.error(f"Script execution error: {msg}", exc_info=True)
     return ROUTE
-
-# --- FUNGSI-FUNGSI BARU UNTUK ALUR RESTORE ---
-async def start_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        "Silakan unggah file backup Anda (`.zip`).\n\n"
-        "⚠️ *Peringatan:* Proses ini akan menimpa semua konfigurasi yang ada. "
-        "Ketik /cancel untuk membatalkan kapan saja.",
-        parse_mode=ParseMode.MARKDOWN_V2
-    )
-    return RESTORE_WAIT_FILE
-
-async def receive_restore_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    document = update.message.document
-    if not document or not document.file_name.endswith('.zip'):
-        await update.message.reply_text("❌ File tidak valid. Harap unggah file `.zip`.")
-        return RESTORE_WAIT_FILE
-
-    await update.message.reply_text("⏳ Mengunduh file backup...")
-    
-    file = await document.get_file()
-    file_path = f"/root/{document.file_name}"
-    await file.download_to_drive(file_path)
-    
-    context.user_data['restore_file_path'] = file_path
-    
-    safe_filename = escape_markdown_v2(document.file_name)
-    await update.message.reply_text(
-        f"✅ File `{safe_filename}` berhasil diunggah.\n\n"
-        "⚠️ *PERINGATAN TERAKHIR\\!* \n"
-        "Melanjutkan akan menghapus semua data pengguna dan konfigurasi saat ini, "
-        "lalu menggantinya dengan data dari file backup.\n\n"
-        "*Apakah Anda benar-benar yakin ingin melanjutkan?*",
-        reply_markup=keyboards.get_restore_confirmation_keyboard(),
-        parse_mode=ParseMode.MARKDOWN_V2
-    )
-    return RESTORE_CONFIRM
-
-async def execute_restore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    
-    file_path = context.user_data.get('restore_file_path')
-    
-    if query.data == "cancel_restore_action":
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
-        await query.edit_message_text("❌ Restore dibatalkan. File yang diunggah telah dihapus.", reply_markup=keyboards.get_back_to_menu_keyboard())
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    if not file_path or not os.path.exists(file_path):
-        await query.edit_message_text("❌ Terjadi error: Path file backup tidak ditemukan. Silakan ulangi dari awal.", reply_markup=keyboards.get_back_to_menu_keyboard())
-        context.user_data.clear()
-        return ConversationHandler.END
-
-    await query.edit_message_text("⏳ Memulai proses restore, ini mungkin memakan waktu beberapa saat...")
-    
-    try:
-        p = subprocess.run(
-            ['sudo', '/opt/hokage-bot/restore_for_bot.sh', file_path],
-            capture_output=True, text=True, check=True, timeout=300
-        )
-        safe_output = escape_markdown_v2(p.stdout.strip())
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text=f"```\n{safe_output}\n```",
-            parse_mode=ParseMode.MARKDOWN_V2,
-            reply_markup=keyboards.get_back_to_menu_keyboard()
-        )
-    except Exception as e:
-        await handle_script_error(update, context, e)
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
-            
-    context.user_data.clear()
-    return ConversationHandler.END
 
 async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -185,21 +88,16 @@ async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         script_path = "/opt/hokage-bot/backup_for_bot.sh"
         process = subprocess.run(
             ['sudo', script_path],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=600
+            capture_output=True, text=True, check=True, timeout=600
         )
         
         script_output = process.stdout
-        local_file_path = None
+        await context.bot.send_message(chat_id, script_output)
 
+        local_file_path = None
         match = re.search(r"LocalPath: (/\S+\.zip)", script_output)
         if match:
             local_file_path = match.group(1).strip()
-
-        safe_summary = escape_markdown_v2(script_output)
-        await context.bot.send_message(chat_id, f"```\n{safe_summary}\n```", parse_mode=ParseMode.MARKDOWN_V2)
 
         if local_file_path and os.path.exists(local_file_path):
             await context.bot.send_message(chat_id, "📤 Mengirim file backup...")
@@ -209,19 +107,12 @@ async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             os.remove(local_file_path)
             await context.bot.send_message(chat_id, "✅ File backup di server telah dihapus.")
         elif local_file_path:
-             safe_path = escape_markdown_v2(local_file_path)
-             await context.bot.send_message(chat_id, f"⚠️ Gagal mengirim file. File tidak ditemukan di: `{safe_path}`", parse_mode=ParseMode.MARKDOWN_V2)
+             await context.bot.send_message(chat_id, f"⚠️ Gagal mengirim file. File tidak ditemukan di: {local_file_path}")
         else:
             await context.bot.send_message(chat_id, "⚠️ Gagal menemukan path file backup di output skrip.")
 
-    except subprocess.CalledProcessError as e:
-        error_text = f"❌ Skrip backup gagal dieksekusi.\n\n*Output Error:*\n{e.stderr}"
-        safe_error = escape_markdown_v2(error_text)
-        await context.bot.send_message(chat_id, f"```\n{safe_error}\n```", parse_mode=ParseMode.MARKDOWN_V2)
     except Exception as e:
-        error_text = f"❗️ Terjadi kesalahan internal yang tidak terduga.\n\n*Detail Error:*\n{str(e)}"
-        safe_error = escape_markdown_v2(error_text)
-        await context.bot.send_message(chat_id, f"```\n{safe_error}\n```", parse_mode=ParseMode.MARKDOWN_V2)
+        await handle_script_error(update, context, e)
         
     await context.bot.send_message(chat_id, "Proses selesai.", reply_markup=keyboards.get_back_to_menu_keyboard())
     
@@ -236,6 +127,14 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
     if command == "menu_backup":
         return await handle_backup(update, context)
+
+    if command == "menu_restore":
+        context.user_data['action_to_confirm'] = 'restore'
+        await query.edit_message_text(
+            "PERINGATAN!\n\nRestore akan menimpa semua data dengan backup terbaru. Lanjutkan?",
+            reply_markup=keyboards.get_confirmation_keyboard()
+        )
+        return ROUTE
 
     if command in ["main_menu", "back_to_main_menu"]:
         await query.edit_message_text("Main Menu:", reply_markup=keyboards.get_main_menu_keyboard())
@@ -265,10 +164,10 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return state
 
     if command == "ssh_renew":
-        await query.edit_message_text(text="➡️ Silakan masukkan *username* akun SSH yang ingin diperpanjang:", parse_mode=ParseMode.MARKDOWN_V2)
+        await query.edit_message_text(text="➡️ Silakan masukkan username akun SSH yang ingin diperpanjang:")
         return RENEW_SSH_GET_USERNAME
     elif command == "vmess_renew":
-        await query.edit_message_text(text="➡️ Silakan masukkan *username* akun VMESS yang ingin diperpanjang:", parse_mode=ParseMode.MARKDOWN_V2)
+        await query.edit_message_text(text="➡️ Silakan masukkan username akun VMESS yang ingin diperpanjang:")
         return RENEW_VMESS_GET_USERNAME
 
     delete_starters = {
@@ -280,8 +179,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if command in delete_starters:
         protocol, state, prompt_text = delete_starters[command]
         context.user_data['delete_protocol'] = protocol
-        safe_prompt = escape_markdown_v2(prompt_text)
-        await query.edit_message_text(f"➡️ Masukkan *{safe_prompt}* akun yang ingin dihapus:", parse_mode=ParseMode.MARKDOWN_V2)
+        await query.edit_message_text(f"➡️ Masukkan {prompt_text} akun yang ingin dihapus:")
         return state
 
     trial_starters = {
@@ -317,8 +215,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     elif command == "reboot_server":
         context.user_data['action_to_confirm'] = 'reboot'
         await query.edit_message_text(
-            "⚠️ *PERINGATAN\\!* \n\nServer akan reboot dan bot akan berhenti sementara\\. Lanjutkan?",
-            parse_mode=ParseMode.MARKDOWN_V2,
+            "PERINGATAN!\n\nServer akan reboot dan bot akan berhenti sementara. Lanjutkan?",
             reply_markup=keyboards.get_confirmation_keyboard()
         )
         return ROUTE
@@ -335,6 +232,8 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
                     subprocess.Popen(['sudo', 'reboot'])
                 except Exception as e:
                     await handle_script_error(update, context, e)
+            elif action == 'restore':
+                await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/restore_for_bot.sh'], "Proses Restore:")
             else:
                 await query.edit_message_text("Aksi konfirmasi tidak dikenal atau sudah kadaluarsa.", reply_markup=keyboards.get_back_to_menu_keyboard())
         elif command == "cancel_action":
@@ -342,7 +241,7 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ROUTE
 
     logger.warning(f"Unhandled callback query: {command} in route_handler.")
-    await query.edit_message_text(f"Fitur `{escape_markdown_v2(command)}` belum diimplementasikan atau tidak dikenal.", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboards.get_back_to_menu_keyboard())
+    await query.edit_message_text(f"Fitur {command} belum diimplementasikan atau tidak dikenal.", reply_markup=keyboards.get_back_to_menu_keyboard())
     return ROUTE
 
 async def run_script_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, script_command: list, success_message: str):
@@ -361,18 +260,14 @@ async def run_script_and_reply(update: Update, context: ContextTypes.DEFAULT_TYP
         p = subprocess.run(script_command, capture_output=True, text=True, check=True, timeout=60)
         output = p.stdout.strip()
         
-        safe_output = escape_markdown_v2(output)
-        safe_success_message = escape_markdown_v2(success_message)
-
         if output:
-            response_text = f"✅ *{safe_success_message}*\n\n```{safe_output}```"
+            response_text = f"✅ {success_message}\n\n{output}"
         else:
-            response_text = f"✅ *{safe_success_message}*\n\nOperasi selesai, tidak ada output spesifik."
+            response_text = f"✅ {success_message}\n\nOperasi selesai, tidak ada output spesifik."
 
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=response_text,
-            parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=keyboards.get_back_to_menu_keyboard()
         )
         if update.callback_query:
@@ -383,11 +278,9 @@ async def run_script_and_reply(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # --- SSH Creation Handlers ---
 async def send_script_output(update: Update, context: ContextTypes.DEFAULT_TYPE, script_command: list):
-    """Fungsi helper untuk menjalankan skrip dan mengirim outputnya sebagai blok kode."""
     try:
         p = subprocess.run(script_command, capture_output=True, text=True, check=True, timeout=30)
-        safe_output = escape_markdown_v2(p.stdout.strip())
-        await update.message.reply_text(f"```\n{safe_output}\n```", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboards.get_back_to_menu_keyboard())
+        await update.message.reply_text(p.stdout.strip(), reply_markup=keyboards.get_back_to_menu_keyboard())
     except Exception as e:
         await handle_script_error(update, context, e)
 
@@ -423,11 +316,9 @@ async def ssh_get_ip_limit_and_create(update: Update, context: ContextTypes.DEFA
 async def renew_ssh_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     username = update.message.text
     context.user_data['renew_username'] = username
-    safe_username = escape_markdown_v2(username)
     await update.message.reply_text(
-        f"✅ Username: `{safe_username}`\n\n"
-        "➡️ Sekarang, masukkan *durasi* perpanjangan (misal: 30 untuk 30 hari).",
-        parse_mode=ParseMode.MARKDOWN_V2
+        f"✅ Username: {username}\n\n"
+        "➡️ Sekarang, masukkan durasi perpanjangan (misal: 30 untuk 30 hari)."
     )
     return RENEW_SSH_GET_DURATION
 
@@ -446,11 +337,9 @@ async def renew_ssh_get_duration_and_execute(update: Update, context: ContextTyp
 async def renew_vmess_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     username = update.message.text
     context.user_data['renew_username'] = username
-    safe_username = escape_markdown_v2(username)
     await update.message.reply_text(
-        f"✅ Username: `{safe_username}`\n\n"
-        "➡️ Sekarang, masukkan *durasi* perpanjangan (misal: 30 untuk 30 hari).",
-        parse_mode=ParseMode.MARKDOWN_V2
+        f"✅ Username: {username}\n\n"
+        "➡️ Sekarang, masukkan durasi perpanjangan (misal: 30 untuk 30 hari)."
     )
     return RENEW_VMESS_GET_DURATION
 
@@ -479,8 +368,7 @@ async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await query.edit_message_text("ℹ️ Belum ada akun SSH yang terdaftar di sistem.", reply_markup=keyboards.get_back_to_menu_keyboard())
         return ROUTE
     
-    safe_output = escape_markdown_v2(script_output)
-    await query.edit_message_text(f"```\n{safe_output}\n```", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboards.get_back_to_menu_keyboard())
+    await query.edit_message_text(script_output)
     return SSH_SELECT_ACCOUNT
 
 async def ssh_select_account_and_show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -490,8 +378,7 @@ async def ssh_select_account_and_show_config(update: Update, context: ContextTyp
         context.user_data.clear()
         return ROUTE
     
-    await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk akun nomor `{escape_markdown_v2(user_input)}`...", parse_mode=ParseMode.MARKDOWN_V2)
-    # Anda perlu membuat skrip get_ssh_config.sh yang menerima nomor sebagai argumen
+    await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk akun nomor {user_input}...")
     await send_script_output(update, context, ['sudo', '/opt/hokage-bot/get_ssh_config.sh', user_input])
     context.user_data.clear()
     return ROUTE
@@ -543,8 +430,7 @@ async def vmess_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("ℹ️ Belum ada akun VMESS yang terdaftar.", reply_markup=keyboards.get_back_to_menu_keyboard())
         return ROUTE
     
-    safe_output = escape_markdown_v2(script_output)
-    await query.edit_message_text(f"```\n{safe_output}\n```", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboards.get_back_to_menu_keyboard())
+    await query.edit_message_text(script_output)
     return VMESS_SELECT_ACCOUNT
 
 async def vmess_select_account_and_show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -554,8 +440,7 @@ async def vmess_select_account_and_show_config(update: Update, context: ContextT
         context.user_data.clear()
         return ROUTE
     
-    await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk akun nomor `{escape_markdown_v2(user_input)}`...", parse_mode=ParseMode.MARKDOWN_V2)
-    # Anda perlu membuat skrip get_vmess_config.sh yang menerima nomor sebagai argumen
+    await update.message.reply_text(f"⏳ Mengambil konfigurasi untuk akun nomor {user_input}...")
     await send_script_output(update, context, ['sudo', '/opt/hokage-bot/get_vmess_config.sh', user_input])
     context.user_data.clear()
     return ROUTE
@@ -694,10 +579,8 @@ async def delete_get_username(update: Update, context: ContextTypes.DEFAULT_TYPE
     username_to_delete = update.message.text
     context.user_data['username_to_delete'] = username_to_delete
     protocol = context.user_data.get('delete_protocol', 'Akun')
-    safe_username = escape_markdown_v2(username_to_delete)
     await update.message.reply_text(
-        f"Anda yakin ingin menghapus akun {protocol} dengan username *{safe_username}*?",
-        parse_mode=ParseMode.MARKDOWN_V2,
+        f"Anda yakin ingin menghapus akun {protocol} dengan username {username_to_delete}?",
         reply_markup=keyboards.get_confirmation_keyboard()
     )
     return DELETE_CONFIRMATION
@@ -727,8 +610,7 @@ async def delete_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE
                 raise ValueError(f"Protokol {protocol} tidak didukung.")
             
             p = subprocess.run(['sudo', script_path, username_to_delete], capture_output=True, text=True, check=True, timeout=30)
-            safe_output = escape_markdown_v2(p.stdout.strip())
-            await query.edit_message_text(f"```\n{safe_output}\n```", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboards.get_back_to_menu_keyboard())
+            await query.edit_message_text(p.stdout.strip(), reply_markup=keyboards.get_back_to_menu_keyboard())
         except Exception as e:
             await handle_script_error(update, context, e)
     else:
