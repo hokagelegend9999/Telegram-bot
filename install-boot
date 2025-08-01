@@ -71,6 +71,8 @@ run_install() {
     echo "> Menginstal dependensi sistem..."
     apt-get update > /dev/null 2>&1
     apt-get install -y git python3-venv python3-pip jq at > /dev/null 2>&1
+    pip install mysql-connector-python
+    sudo apt install mariadb-server -y
     if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa menginstal dependensi.${NC}"; exit 1; fi
     echo -e "${GREEN}✓ Dependensi sistem terinstal.${NC}"
 
