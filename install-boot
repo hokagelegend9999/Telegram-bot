@@ -1,8 +1,11 @@
 #!/bin/bash
 
 # =================================================================
-#      Installer Final Hokage-BOT (Versi Sinkronisasi GitHub v2)
+#        Installer Final Hokage-BOT (Versi Sinkronisasi GitHub v2)
 # =================================================================
+#
+# Diperbaiki untuk mengatasi masalah 'externally-managed-environment'
+# dan meningkatkan keandalan instalasi.
 
 # --- Konfigurasi ---
 REPO_URL="https://github.com/hokagelegend9999/Telegram-bot.git"
@@ -28,7 +31,7 @@ check_root() {
 show_header() {
     clear
     echo -e "${GREEN}=====================================================${NC}"
-    echo -e "${GREEN}==     Installer Final Hokage-BOT (GitHub Sync)    ==${NC}"
+    echo -e "${GREEN}==        Installer Final Hokage-BOT (GitHub Sync)   ==${NC}"
     echo -e "${GREEN}=====================================================${NC}"
     echo
 }
@@ -69,19 +72,29 @@ run_install() {
 
     # 2. Instal Dependensi Sistem
     echo "> Menginstal dependensi sistem..."
-    apt-get update > /dev/null 2>&1
-    apt-get install -y git python3-venv python3-pip jq at > /dev/null 2>&1
-    pip install mysql-connector-python
-    sudo apt install mariadb-server -y
-    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa menginstal dependensi.${NC}"; exit 1; fi
+    # Perbaikan: Menginstal MariaDB Server, Python Virtual Environment, dan paket lain
+    # dalam satu perintah 'apt' untuk menghindari error dan memastikan semua dependensi
+    # terinstal sebelum langkah selanjutnya.
+    apt-get update
+    apt-get install -y git python3-venv python3-pip jq at mariadb-server
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}GAGAL: Tidak bisa menginstal dependensi sistem. Mohon periksa koneksi internet atau repository Anda.${NC}"
+        exit 1
+    fi
     echo -e "${GREEN}✓ Dependensi sistem terinstal.${NC}"
+    
+    # Tambahan: Amankan instalasi MariaDB jika diperlukan, atau buat pengguna dan database khusus
+    # mariadb_secure_installation_command
+    # mysql -u root -e "CREATE USER 'hokagebot'@'localhost' IDENTIFIED BY 'password';"
+    # mysql -u root -e "GRANT ALL PRIVILEGES ON nama_database.* TO 'hokagebot'@'localhost';"
 
     # 3. Clone Repositori dari GitHub
     echo "> Mengunduh semua file terbaru dari repositori Anda..."
-    # Buat direktori aplikasi secara eksplisit untuk memastikan ada
     mkdir -p "$APP_DIR"
     git clone "$REPO_URL" "$APP_DIR"
-    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa mengunduh repositori.${NC}"; exit 1; fi
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}GAGAL: Tidak bisa mengunduh repositori. Pastikan URL repositori benar dan koneksi internet stabil.${NC}"; exit 1;
+    fi
     echo -e "${GREEN}✓ Semua file berhasil diunduh.${NC}"
 
     # 4. Membuat File Konfigurasi (config.py)
@@ -95,13 +108,23 @@ EOF
 
     # 5. Menyiapkan Lingkungan Python
     echo "> Menyiapkan virtual environment & menginstal library..."
+    # Perbaikan: Semua instalasi paket Python dilakukan di dalam virtual environment.
+    # Ini adalah solusi untuk error 'externally-managed-environment'.
     python3 -m venv "${APP_DIR}/venv"
     source "${APP_DIR}/venv/bin/activate"
-    pip install -r "${APP_DIR}/requirements.txt" > /dev/null 2>&1
+    
+    # Perbaikan: Menggabungkan semua instalasi pip ke dalam virtual environment.
+    # Jika requirements.txt sudah berisi 'mysql-connector-python', baris ini bisa dihapus.
+    pip install -r "${APP_DIR}/requirements.txt"
+    pip install mysql-connector-python
+    
     deactivate
-    if [ $? -ne 0 ]; then echo -e "${RED}GAGAL: Tidak bisa menginstal library Python.${NC}"; exit 1; fi
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}GAGAL: Tidak bisa menginstal library Python. Pastikan requirements.txt ada dan tidak ada kesalahan sintaks.${NC}"
+        exit 1
+    fi
     echo -e "${GREEN}✓ Lingkungan Python siap.${NC}"
-
+    
     # 6. Mengatur Izin
     echo "> Memberikan izin eksekusi & sudo..."
     chmod +x ${APP_DIR}/*.sh
@@ -128,9 +151,16 @@ EOF
 
     echo "> Mengaktifkan dan memulai layanan bot..."
     systemctl daemon-reload
-    systemctl enable hokage-bot.service > /dev/null 2>&1
+    systemctl enable hokage-bot.service
     systemctl start hokage-bot.service
-    echo -e "${GREEN}✓ Layanan bot berhasil dibuat dan dijalankan.${NC}"
+    # Cek status layanan untuk memastikan bot berhasil dijalankan
+    sleep 5
+    if systemctl is-active --quiet hokage-bot.service; then
+        echo -e "${GREEN}✓ Layanan bot berhasil dibuat dan dijalankan.${NC}"
+    else
+        echo -e "${RED}GAGAL: Layanan bot tidak dapat dimulai. Periksa log dengan 'journalctl -u hokage-bot.service'.${NC}"
+        exit 1
+    fi
 }
 
 # --- EKSEKUSI UTAMA ---
@@ -146,4 +176,3 @@ echo -e "${GREEN}=====================================================${NC}"
 echo
 echo "Selamat! Bot Anda sekarang berjalan."
 echo -e "Untuk memeriksa status, gunakan: ${YELLOW}systemctl status hokage-bot.service${NC}"
-echo
