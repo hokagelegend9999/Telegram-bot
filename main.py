@@ -98,6 +98,8 @@ def main() -> None:
             handlers.VMESS_SELECT_ACCOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.vmess_select_account_and_show_config)],
         },
         fallbacks=[
+            CommandHandler("start", handlers.start),
+            CommandHandler("menu", handlers.menu),
             CommandHandler("cancel", handlers.cancel),
             # Tombol kembali ke menu sekarang juga bagian dari fallback
             CallbackQueryHandler(handlers.back_to_menu_from_conv, pattern="^main_menu$")
