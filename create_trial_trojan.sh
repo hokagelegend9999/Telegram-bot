@@ -27,9 +27,9 @@ fi
 
 # Add to config
 sed -i '/#trojanws$/a\#tr '"$user $exp $uuid"'\
-},{"password": "'"$uuid"'","email": "'"$user"'"' "$CONFIG_FILE"
+},{"password": "'""$uuid""'","email": "'""$user""'"' /etc/xray/config.json
 sed -i '/#trojangrpc$/a\#trg '"$user $exp"'\
-},{"password": "'"$uuid"'","email": "'"$user"'"' "$CONFIG_FILE"
+},{"password": "'""$uuid""'","email": "'""$user""'"' /etc/xray/config.json
 
 # Schedule deletion
 mkdir -p /etc/hokage-bot
