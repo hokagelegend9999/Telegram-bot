@@ -138,7 +138,14 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ROUTE
 
     if command in ["main_menu", "back_to_main_menu"]:
-        await query.edit_message_text("Main Menu:", reply_markup=keyboards.get_main_menu_keyboard())
+        # 1. Hapus keyboard dari pesan sebelumnya (pesan detail akun)
+        await query.edit_message_reply_markup(reply_markup=None)
+        
+        # 2. Kirim menu utama sebagai pesan baru
+        await update.effective_chat.send_message(
+            "Silakan pilih dari menu di bawah:",
+            reply_markup=keyboards.get_main_menu_keyboard()
+        )
         return ROUTE
 
     menu_map = {
@@ -183,16 +190,29 @@ async def route_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         await query.edit_message_text(f"➡️ Masukkan {prompt_text} akun yang ingin dihapus:")
         return state
 
-    trial_starters = {
-        "ssh_trial": ("SSH", TRIAL_CREATE_SSH),
-        "vmess_trial": ("VMESS", TRIAL_CREATE_VMESS),
-        "vless_trial": ("VLESS", TRIAL_CREATE_VLESS),
-        "trojan_trial": ("TROJAN", TRIAL_CREATE_TROJAN),
+    trial_scripts = {
+        "ssh_trial": ('SSH', '/opt/hokage-bot/create_trial_ssh.sh'),
+        "vmess_trial": ('VMESS', '/opt/hokage-bot/create_trial_vmess.sh'),
+        "vless_trial": ('VLESS', '/opt/hokage-bot/create_trial_vless.sh'),
+        "trojan_trial": ('TROJAN', '/opt/hokage-bot/create_trial_trojan.sh'),
     }
-    if command in trial_starters:
-        protocol_name, state = trial_starters[command]
-        await query.edit_message_text(f"➡️ Masukkan durasi (hari) untuk akun Trial {protocol_name}:")
-        return state
+
+    if command in trial_scripts:
+        protocol_name, script_path = trial_scripts[command]
+        
+        # Durasi di-hardcode menjadi "1" (untuk 1 hari).
+        # Ini adalah cara paling umum karena skrip biasanya menerima masukan dalam hari.
+        # Anda bisa memberitahu pengguna bahwa masa aktifnya 60 menit.
+        duration = "1" 
+        
+        # Menggunakan fungsi run_script_and_reply yang sudah ada untuk eksekusi
+        await run_script_and_reply(
+            update, 
+            context, 
+            ['sudo', script_path, duration], 
+            f"✅ Akun Trial {protocol_name} (Aktif 60 Menit) Berhasil Dibuat"
+        )
+        return ROUTE
 
     if command == "ssh_list" or command == "ssh_config_user":
         await ssh_list_accounts(update, context)
@@ -369,7 +389,14 @@ async def ssh_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await query.edit_message_text("ℹ️ Belum ada akun SSH yang terdaftar di sistem.", reply_markup=keyboards.get_back_to_menu_keyboard())
         return ROUTE
 
-    await query.edit_message_text(script_output)
+    # --- PENAMBAHAN DI SINI ---
+    # Menambahkan keyboard dengan tombol "Kembali" saat menampilkan daftar akun
+    await query.edit_message_text(
+        script_output,
+        reply_markup=keyboards.get_back_to_menu_keyboard() 
+    )
+    # ---------------------------
+    
     return SSH_SELECT_ACCOUNT
 
 async def ssh_select_account_and_show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -436,6 +463,8 @@ async def vmess_get_duration(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.clear()
     return ROUTE
 
+# GANTI FUNGSI INI DENGAN VERSI BARU
+
 async def vmess_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -449,7 +478,14 @@ async def vmess_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.edit_message_text("ℹ️ Belum ada akun VMESS yang terdaftar.", reply_markup=keyboards.get_back_to_menu_keyboard())
         return ROUTE
 
-    await query.edit_message_text(script_output)
+    # --- PENAMBAHAN DI SINI ---
+    # Menambahkan keyboard dengan tombol "Kembali" saat menampilkan daftar akun
+    await query.edit_message_text(
+        script_output,
+        reply_markup=keyboards.get_back_to_menu_keyboard()
+    )
+    # ---------------------------
+    
     return VMESS_SELECT_ACCOUNT
 
 async def vmess_select_account_and_show_config(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -497,11 +533,34 @@ async def vless_get_quota_and_create(update: Update, context: ContextTypes.DEFAU
     context.user_data.clear()
     return ROUTE
 
+# GANTI FUNGSI INI DENGAN VERSI BARU
+
 async def vless_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
+    
     await query.edit_message_text("⏳ Mengambil daftar akun VLESS...")
-    await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/list_vless_users.sh'], "Daftar Akun VLESS")
+
+    try:
+        p = subprocess.run(
+            ['sudo', '/opt/hokage-bot/list_vless_users.sh'], 
+            capture_output=True, text=True, check=True, timeout=30
+        )
+        output = p.stdout.strip()
+        
+        if not output or "tidak ada" in output.lower() or "no client" in output.lower():
+            response_text = "ℹ️ Belum ada akun VLESS yang terdaftar."
+        else:
+            response_text = f"Daftar Akun VLESS\n\n{output}"
+
+        await query.edit_message_text(
+            response_text,
+            reply_markup=keyboards.get_back_to_menu_keyboard()
+        )
+
+    except Exception as e:
+        await handle_script_error(update, context, e)
+        
     return ROUTE
 
 # --- TROJAN Handlers ---
@@ -537,11 +596,34 @@ async def trojan_get_quota_and_create(update: Update, context: ContextTypes.DEFA
     context.user_data.clear()
     return ROUTE
 
+# GANTI FUNGSI INI DENGAN VERSI BARU
+
 async def trojan_list_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
+
     await query.edit_message_text("⏳ Mengambil daftar akun TROJAN...")
-    await run_script_and_reply(update, context, ['sudo', '/opt/hokage-bot/list_trojan_users.sh'], "Daftar Akun TROJAN")
+
+    try:
+        p = subprocess.run(
+            ['sudo', '/opt/hokage-bot/list_trojan_users.sh'], 
+            capture_output=True, text=True, check=True, timeout=30
+        )
+        output = p.stdout.strip()
+
+        if not output or "tidak ada" in output.lower() or "no client" in output.lower():
+            response_text = "ℹ️ Belum ada akun TROJAN yang terdaftar."
+        else:
+            response_text = f"Daftar Akun TROJAN\n\n{output}"
+
+        await query.edit_message_text(
+            response_text,
+            reply_markup=keyboards.get_back_to_menu_keyboard()
+        )
+
+    except Exception as e:
+        await handle_script_error(update, context, e)
+
     return ROUTE
 
 # --- Delete Handlers ---
