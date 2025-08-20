@@ -26,9 +26,9 @@ fi
 
 # Add to config
 sed -i '/#vmess$/a\#vm '"$user $exp"'\
-},{"id": "'"$uuid"'","alterId": "0","email": "'"$user"'"' "$CONFIG_FILE"
-sed -i '/#vmessgrpc$/a\#vmg '"$user $exp"'\
-},{"id": "'"$uuid"'","alterId": "0","email": "'"$user"'"' "$CONFIG_FILE"
+},{"id": "'""$uuid""'","alterId": '"0"',"email": "'""$user""'"' /etc/xray/config.json
+sed -i '/#vmessgrpc$/a\#vmg '"$user $exp $uuid"'\
+},{"id": "'""$uuid""'","alterId": '"0"',"email": "'""$user""'"' /etc/xray/config.json
 
 # Log trial user
 mkdir -p /etc/hokage-bot
