@@ -32,9 +32,10 @@ fi
 # Tanpa penanda ini, skrip TIDAK akan berfungsi.
 
 # Tambahkan user ke VLESS WS
-sed -i '/#vlessws/a\,"id": "'"$uuid"'","email": "'"$user"'"' "$CONFIG_FILE"
-# Tambahkan user ke VLESS gRPC
-sed -i '/#vlessgrpc/a\,"id": "'"$uuid"'","email": "'"$user"'"' "$CONFIG_FILE"
+sed -i '/#vless$/a\#vl '"$user $exp $uuid"'\
+},{"id": "'""$uuid""'","email": "'""$user""'"' /etc/xray/config.json
+sed -i '/#vlessgrpc$/a\#vlg '"$user $exp"'\
+},{"id": "'""$uuid""'","email": "'""$user""'"' /etc/xray/config.json
 
 # Tambahkan komentar untuk skrip 'list_vless_users.sh'
 sed -i "2a#vls $user $exp" "$CONFIG_FILE"
