@@ -33,9 +33,9 @@ fi
 
 # Add to config
 sed -i '/#vmess$/a\#vm '"$user $exp"'\
-},{"id": "'"$uuid"'","alterId": "0","email": "'"$user"'"' "$CONFIG_FILE"
-sed -i '/#vmessgrpc$/a\#vmg '"$user $exp"'\
-},{"id": "'"$uuid"'","alterId": "0","email": "'"$user"'"' "$CONFIG_FILE"
+},{"id": "'""$uuid""'","alterId": '"0"',"email": "'""$user""'"' /etc/xray/config.json
+sed -i '/#vmessgrpc$/a\#vmg '"$user $exp $uuid"'\
+},{"id": "'""$uuid""'","alterId": '"0"',"email": "'""$user""'"' /etc/xray/config.json
 
 # Generate links
 vmess_ws_tls_json="{\"v\":\"2\",\"ps\":\"${user} TLS\",\"add\":\"${domain}\",\"port\":\"443\",\"id\":\"${uuid}\",\"aid\":\"0\",\"net\":\"ws\",\"path\":\"/vmess\",\"type\":\"none\",\"host\":\"${domain}\",\"tls\":\"tls\"}"
@@ -80,7 +80,7 @@ TEXT="
 └─ 🚀 gRPC (443):
    $vmesslink3
 ═══════════════════════════════
-⚠️ Gunakan sebelum expired!
+TERIMAKASIH TELAH BERBELANJA VPN
 "
 
 # Save log
